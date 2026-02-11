@@ -23,7 +23,7 @@ fn main() {
 
     let mut model: Qwen<Backend> = config.init(&device);
 
-    println!("Qwen model initialized: {:?}", model);
+
 
     // --- Safetensors loading ---
     let api = Api::new().unwrap();
@@ -37,8 +37,7 @@ fn main() {
     let buffer = fs::read(&model_path).unwrap();
     let safetensors = SafeTensors::deserialize(&buffer).unwrap();
 
-    let safetensors_keys: Vec<String> = safetensors.tensors().iter().map(|(key, _)| key.clone()).collect();
-    println!("Safetensors loaded with keys: {:?}", safetensors_keys);
+
 
     let record = model.clone().into_record();
     let model_with_weights = crate::weight::load_qwen_record(&config, &safetensors, record, &device);
