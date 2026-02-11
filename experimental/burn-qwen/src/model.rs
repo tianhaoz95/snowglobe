@@ -380,11 +380,11 @@ impl<B: Backend> QwenAttention<B> {
 
         // Causal mask
         let [_batch_size, _num_heads, seq_len_q, seq_len_k] = scores.dims();
-        let causal_mask = Tensor::ones([seq_len_q, seq_len_k], &scores.device())
+        let causal_mask = Tensor::<B, 2>::ones([seq_len_q, seq_len_k], &scores.device())
             .tril(0)
             .bool()
             .reshape([1, 1, seq_len_q, seq_len_k]);
-        scores = scores.mask_fill(causal_mask.logical_not(), f64::NEG_INFINITY);
+        scores = scores.mask_fill(causal_mask.equal_elem(false), f64::NEG_INFINITY);
 
 
         // Apply mask (if provided)

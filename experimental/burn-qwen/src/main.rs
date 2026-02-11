@@ -40,7 +40,7 @@ fn main() {
     let safetensors_keys: Vec<String> = safetensors.tensors().iter().map(|(key, _)| key.clone()).collect();
     println!("Safetensors loaded with keys: {:?}", safetensors_keys);
 
-    let record = model.into_record();
+    let record = model.clone().into_record();
     let model_with_weights = crate::weight::load_qwen_record(&config, &safetensors, record, &device);
-    model = Qwen::from_record(model_with_weights);
+    model = model.load_record(model_with_weights);
 }
