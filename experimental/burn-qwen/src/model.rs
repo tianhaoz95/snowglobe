@@ -67,11 +67,20 @@ impl QwenConfig {
             })
             .collect();
 
+        let linear_output = if self.tied_word_embeddings {
+            Linear {
+                weight: embedding.weight.clone(),
+                bias: None,
+            }
+        } else {
+            LinearConfig::new(hidden_size, vocab_size).init(device)
+        };
+
         Qwen {
             embedding,
             layers,
             rms_norm,
-            linear_output: LinearConfig::new(hidden_size, vocab_size).init(device),
+            linear_output,
         }
     }
 }
@@ -367,10 +376,19 @@ impl<B: Backend> QwenAttention<B> {
 
         // Scaled Dot-Product Attention
         let scores = q_rotated.matmul(k_gqa.transpose().swap_dims(-1, -2)); // [batch_size, num_attention_heads, seq_len, seq_len]
-        let scores = scores.div_scalar(f64::sqrt(self.head_dim as f64));
+        let mut scores = scores.div_scalar(f64::sqrt(self.head_dim as f64));
+
+        // Causal mask
+        let [_batch_size, _num_heads, seq_len_q, seq_len_k] = scores.dims();
+        let causal_mask = Tensor::ones([seq_len_q, seq_len_k], &scores.device())
+            .tril(0)
+            .bool()
+            .reshape([1, 1, seq_len_q, seq_len_k]);
+        scores = scores.mask_fill(causal_mask.logical_not(), f64::NEG_INFINITY);
+
 
         // Apply mask (if provided)
-        // if let Some(mask) = mask {
+        // if let Some(mask) = _mask {
         //     scores = scores.mask_fill(mask, f64::NEG_INFINITY);
         // }
 
