@@ -100,10 +100,10 @@ impl Default for QwenConfig {
 /// The Qwen model.
 #[derive(Debug, Module)]
 pub struct Qwen<B: Backend> {
-    embedding: Embedding<B>,
-    layers: Vec<QwenBlock<B>>,
-    rms_norm: RmsNorm<B>,
-    linear_output: Linear<B>,
+    pub embedding: Embedding<B>,
+    pub layers: Vec<QwenBlock<B>>,
+    pub rms_norm: RmsNorm<B>,
+    pub linear_output: Linear<B>,
 }
 
 impl<B: Backend> Qwen<B> {

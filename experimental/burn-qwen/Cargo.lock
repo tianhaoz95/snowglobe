@@ -719,6 +719,8 @@ dependencies = [
  "burn-autodiff",
  "burn-tensor",
  "burn-wgpu",
+ "bytemuck",
+ "half",
  "hf-hub",
  "safetensors 0.3.3",
  "serde",

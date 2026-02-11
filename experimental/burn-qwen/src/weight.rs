@@ -31,7 +31,7 @@ fn load_tensor_2d<B: Backend>(
     };
 
     let tensor: Tensor<B, 2> =
-        Tensor::from_data(data.convert::<B::FloatElem>(), device).reshape(shape);
+        Tensor::<B, 2>::from_data(data.convert::<B::FloatElem>(), device).reshape(shape);
 
     if transpose {
         Param::from_tensor(tensor.transpose())
@@ -59,16 +59,16 @@ fn load_tensor_1d<B: Backend>(
     };
 
     let tensor: Tensor<B, 1> =
-        Tensor::from_data(data.convert::<B::FloatElem>(), device).reshape(shape);
+        Tensor::<B, 1>::from_data(data.convert::<B::FloatElem>(), device).reshape(shape);
     Param::from_tensor(tensor)
 }
 
 pub fn load_qwen_record<B: Backend>(
     config: &QwenConfig,
     safetensors: &SafeTensors,
-    record: &mut QwenRecord<B>,
+    mut record: QwenRecord<B>,
     device: &B::Device,
-) {
+) -> QwenRecord<B> {
     let mut tensors: HashMap<String, TensorView> = safetensors
         .tensors()
         .into_iter()
@@ -166,4 +166,6 @@ pub fn load_qwen_record<B: Backend>(
         "Remaining tensors after loading: {:?}",
         tensors.keys().collect::<Vec<_>>()
     );
+
+    record
 }
