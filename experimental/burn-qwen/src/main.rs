@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod model;
 mod rope;
 mod weight; // Add this line to import the weight module
@@ -77,7 +79,8 @@ fn main() {
 
     // 2. Construct the prompt manually to guarantee correctness
     let system_text = "You are a helpful assistant.";
-    let user_text = "what is 1+1? only answer with numbers";
+    // let user_text = "what is 1+1? only answer with numbers";
+    let user_text = "what are you?";
 
     let system_tokens = tokenizer.encode(system_text, false).unwrap().get_ids().to_vec();
     let user_tokens = tokenizer.encode(user_text, false).unwrap().get_ids().to_vec();

@@ -367,7 +367,9 @@ impl<B: Backend> QwenAttention<B> {
         let v_gqa = if self.num_key_value_heads < self.num_attention_heads {
             // Repeat the V heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
-            v_reshaped.repeat(&[1, num_reps, 1, 1])
+            v_reshaped.reshape([batch_size, self.num_key_value_heads, 1, seq_len, self.head_dim])
+                .repeat(&[1, 1, num_reps, 1, 1])
+                .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
         } else {
             v_reshaped
         };
