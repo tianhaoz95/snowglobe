@@ -17,6 +17,7 @@ use hf_hub::api::sync::Api;
 use hf_hub::{Repo, RepoType};
 use safetensors::SafeTensors;
 use std::fs;
+use std::io::{self, Write};
 
 fn main() {
     type Backend = NdArray<f32>;
@@ -68,33 +69,36 @@ fn main() {
 
     // 1. Create a meaningful input tensor
     let device = &model.devices()[0]; // Get the device from the model
-    let input_text = "Hi";
+    let input_text = "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n";
     println!("Encoding input: '{}'", input_text);
     let encoding = tokenizer.encode(input_text, true).unwrap();
-    let encoded_ids = encoding.get_ids().to_vec(); // Vec<u32>
+    let mut token_ids = encoding.get_ids().to_vec(); // Vec<u32>
 
-    let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
-        TensorData::new(encoded_ids.clone().into_iter().map(|x| x as i64).collect(), Shape::new([1, encoded_ids.len()])),
-        device
-    );
+    println!("Generating response...");
 
-    // 2. Run inference
-    let output = model.forward(input_tensor);
+    for _ in 0..128 { // Max generation length
+        let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
+            TensorData::new(token_ids.clone().into_iter().map(|x| x as i64).collect(), Shape::new([1, token_ids.len()])),
+            device
+        );
 
-    // 3. Convert output to token IDs
-    let top_token_ids = output.argmax(2); // shape [batch_size, seq_len]
-    let flat_token_ids: Vec<u32> = top_token_ids
-        .into_data() // Convert to TensorData
-        .into_vec() // Get the underlying vector (Vec<i64>)
-        .into_iter()
-        .flatten() // Flatten Vec<Vec<i64>> to Vec<i64>
-        .map(|x: i64| x as u32) // Convert i64 to u32
-        .collect();
+        let output = model.forward(input_tensor);
 
-    // 4. Decode token IDs to string
-    let decoded_string = tokenizer.decode(&flat_token_ids, true).unwrap();
+        // Get logits for the last token
+        let next_token_logits = output.slice([0..1, (token_ids.len() - 1)..(token_ids.len()), 0..config.vocab_size]).reshape([1, config.vocab_size]); // shape [1, vocab_size]
+        let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i64>().unwrap()[0] as u32;
 
-    // 5. Print the decoded string
-    println!("Inference output: {}", decoded_string);
+        if next_token_id == tokenizer.token_to_id("<|im_end|>").unwrap() {
+            break;
+        }
+
+        token_ids.push(next_token_id);
+
+        let decoded = tokenizer.decode(&[next_token_id], true).unwrap();
+        print!("{}", decoded);
+        io::stdout().flush().unwrap(); // To print token by token
+    }
+
+    println!();
 
 }
