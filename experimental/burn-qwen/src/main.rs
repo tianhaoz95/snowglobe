@@ -64,16 +64,49 @@ fn main() {
 
     // 1. Create a meaningful input tensor
     let device = &model.devices()[0]; // Get the device from the model
-    let input_text = "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n";
-    println!("Encoding input: '{}'", input_text);
-    let encoding = tokenizer.encode(input_text, true).unwrap();
-    let mut token_ids = encoding.get_ids().to_vec(); // Vec<u32>
+
+    // let input_text = "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n";
+    // println!("Encoding input: '{}'", input_text);
+    // let encoding = tokenizer.encode(input_text, true).unwrap();
+    // let mut token_ids = encoding.get_ids().to_vec(); // Vec<u32>
+
+    // 1. Get special token IDs (verify these against your tokenizer.json or vocab)
+    let im_start_id = tokenizer.token_to_id("<|im_start|>").expect("Missing <|im_start|>");
+    let im_end_id = tokenizer.token_to_id("<|im_end|>").expect("Missing <|im_end|>");
+    let newline_id = tokenizer.token_to_id("\n").unwrap_or(198); // Common ID for \n
+
+    // 2. Construct the prompt manually to guarantee correctness
+    let system_text = "You are a helpful assistant.";
+    let user_text = "Hi";
+
+    let system_tokens = tokenizer.encode(system_text, false).unwrap().get_ids().to_vec();
+    let user_tokens = tokenizer.encode(user_text, false).unwrap().get_ids().to_vec();
+
+    let mut token_ids = Vec::new();
+    token_ids.push(im_start_id);
+    token_ids.extend(tokenizer.encode("system", false).unwrap().get_ids());
+    token_ids.push(newline_id);
+    token_ids.extend(system_tokens);
+    token_ids.push(im_end_id);
+    token_ids.push(newline_id);
+    token_ids.push(im_start_id);
+    token_ids.extend(tokenizer.encode("user", false).unwrap().get_ids());
+    token_ids.push(newline_id);
+    token_ids.extend(user_tokens);
+    token_ids.push(im_end_id);
+    token_ids.push(newline_id);
+    token_ids.push(im_start_id);
+    token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    token_ids.push(newline_id);
 
     println!("Generating response...");
 
-    for _ in 0..16 { // Max generation length
+    for _ in 0..16 {
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(token_ids.clone().into_iter().map(|x| x as i64).collect(), Shape::new([1, token_ids.len()])),
+            TensorData::new(
+                token_ids.clone().into_iter().map(|x| x as i32).collect(),
+                Shape::new([1, token_ids.len()])
+            ),
             device
         );
 

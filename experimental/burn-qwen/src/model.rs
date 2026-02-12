@@ -115,7 +115,6 @@ impl<B: Backend> Qwen<B> {
     pub fn forward(&self, input: Tensor<B, 2, Int>) -> Tensor<B, 3> {
         let mut x = self.embedding.forward(input); // Output will be [batch_size, seq_len, hidden_size]
 
-        // QwenBlock expects 3D tensor
         for layer in &self.layers {
             x = layer.forward(x);
         }
@@ -425,9 +424,15 @@ impl QwenMLPConfig {
     }
 
     pub fn init<B: Backend>(&self, device: &B::Device) -> QwenMLP<B> {
-        let gate_proj = LinearConfig::new(self.hidden_size, self.intermediate_size).init(device);
-        let up_proj = LinearConfig::new(self.hidden_size, self.intermediate_size).init(device);
-        let down_proj = LinearConfig::new(self.intermediate_size, self.hidden_size).init(device);
+        let gate_proj = LinearConfig::new(self.hidden_size, self.intermediate_size)
+            .with_bias(false) 
+            .init(device);
+        let up_proj = LinearConfig::new(self.hidden_size, self.intermediate_size)
+            .with_bias(false)
+            .init(device);
+        let down_proj = LinearConfig::new(self.intermediate_size, self.hidden_size)
+            .with_bias(false)
+            .init(device);
 
         QwenMLP {
             gate_proj,
