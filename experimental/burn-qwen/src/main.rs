@@ -20,7 +20,7 @@ fn main() {
     type Backend = NdArray<f32>;
 
     let config = QwenConfig::default();
-    let device = <Backend as burn::tensor::backend::Backend>::Device::Cpu; // Access Device directly
+    let device = <Backend as burn::tensor::backend::Backend>::Device::Cpu;
 
     println!("Initializing Qwen model...");
     let mut model: Qwen<Backend> = config.init(&device);
