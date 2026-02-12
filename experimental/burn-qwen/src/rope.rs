@@ -1,4 +1,4 @@
-use burn_tensor::{backend::Backend, ops::*, Shape, Tensor, TensorData, Int, Element};
+use burn_tensor::{backend::Backend, Shape, Tensor, TensorData};
 
 /// Applies rotary positional embeddings to query and key tensors.
 pub fn apply_rotary_pos_emb<B: Backend>(

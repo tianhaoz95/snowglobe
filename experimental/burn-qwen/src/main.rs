@@ -3,11 +3,8 @@ mod rope;
 mod weight; // Add this line to import the weight module
 
 use crate::model::QwenConfig;
-use burn_autodiff::Autodiff;
 use burn::backend::NdArray;
-use burn::tensor::backend::Backend; // Import the Backend trait
-use crate::model::Qwen; // Import Qwen
-use crate::weight::load_qwen_record; // Import load_qwen_record
+use crate::model::Qwen;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
 use tokenizers::Tokenizer;
@@ -21,7 +18,6 @@ use std::io::{self, Write};
 
 fn main() {
     type Backend = NdArray<f32>;
-    type AutodiffBackend = Autodiff<Backend>;
 
     let config = QwenConfig::default();
     let device = <Backend as burn::tensor::backend::Backend>::Device::Cpu; // Access Device directly
@@ -76,7 +72,7 @@ fn main() {
 
     println!("Generating response...");
 
-    for _ in 0..128 { // Max generation length
+    for _ in 0..16 { // Max generation length
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(token_ids.clone().into_iter().map(|x| x as i64).collect(), Shape::new([1, token_ids.len()])),
             device

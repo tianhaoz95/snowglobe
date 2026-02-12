@@ -1,12 +1,8 @@
 use burn::{
     module::Module,
     nn::{
-        transformer::TransformerEncoderConfig, // Left for reference if needed later
         Embedding, EmbeddingConfig, Linear, LinearConfig,
-        // Renamed RMSNorm to RmsNorm in newer Burn versions
         RmsNorm, RmsNormConfig,
-        // Renamed GELU to Gelu in newer Burn versions
-        Gelu,
     },
     tensor::{backend::Backend, Int, Tensor},
 }; // Closing brace for the `burn` import block
