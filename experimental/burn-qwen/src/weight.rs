@@ -182,6 +182,11 @@ pub fn load_qwen_record<B: Backend>(
         pb.inc(1);
     }
 
+    if !config.tied_word_embeddings {
+        record.linear_output.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, true);
+        pb.inc(1);
+    }
+
     record.rms_norm.gamma = load_tensor_1d(&mut tensors, "model.norm.weight", device);
     pb.inc(1);
 

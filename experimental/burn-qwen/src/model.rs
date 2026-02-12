@@ -1,5 +1,5 @@
 use burn::{
-    module::Module,
+    module::{Module, Param},
     nn::{
         Embedding, EmbeddingConfig, Linear, LinearConfig,
         RmsNorm, RmsNormConfig,
@@ -65,7 +65,7 @@ impl QwenConfig {
 
         let linear_output = if self.tied_word_embeddings {
             Linear {
-                weight: embedding.weight.clone(),
+                weight: Param::from_tensor(embedding.weight.clone().val().transpose()),
                 bias: None,
             }
         } else {
@@ -94,7 +94,7 @@ impl Default for QwenConfig {
             max_position_embeddings: 32768,
             rms_norm_eps: 1e-6,
             use_cache: true,      // Typically true for inference
-            tied_word_embeddings: false, // Check Qwen config for this
+            tied_word_embeddings: true, // Check Qwen config for this
             qkv_bias: true,
             hidden_act: "silu".to_string(),
             dropout: 0.0,
