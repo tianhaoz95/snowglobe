@@ -9,7 +9,7 @@ use burn::tensor::backend::Backend; // Import the Backend trait
 use crate::model::Qwen; // Import Qwen
 use crate::weight::load_qwen_record; // Import load_qwen_record
 use burn::prelude::*;
-use burn::tensor::Int;
+use burn::tensor::{Int, TensorData};
 use tokenizers::Tokenizer;
 
 
@@ -66,12 +66,20 @@ fn main() {
     println!("Tokenizer downloaded to: {:?}", tokenizer_path);
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
-    // 1. Create a dummy input tensor
+    // 1. Create a meaningful input tensor
     let device = &model.devices()[0]; // Get the device from the model
-    let input: Tensor<Backend, 2, Int> = burn::tensor::Tensor::from_data([[1, 2, 3]], device);
+    let input_text = "Hi";
+    println!("Encoding input: '{}'", input_text);
+    let encoding = tokenizer.encode(input_text, true).unwrap();
+    let encoded_ids = encoding.get_ids().to_vec(); // Vec<u32>
+
+    let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
+        TensorData::new(encoded_ids.clone().into_iter().map(|x| x as i64).collect(), Shape::new([1, encoded_ids.len()])),
+        device
+    );
 
     // 2. Run inference
-    let output = model.forward(input);
+    let output = model.forward(input_tensor);
 
     // 3. Convert output to token IDs
     let top_token_ids = output.argmax(2); // shape [batch_size, seq_len]
