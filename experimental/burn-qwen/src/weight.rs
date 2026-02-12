@@ -2,6 +2,7 @@ use burn::{
     module::Param,
     tensor::{backend::Backend, Shape, Tensor, TensorData},
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use half::{bf16, f16};
 use safetensors::{
     tensor::{SafeTensors, TensorView},
@@ -75,7 +76,16 @@ pub fn load_qwen_record<B: Backend>(
         .map(|(k, v)| (k.clone(), v))
         .collect();
 
+    let pb = ProgressBar::new(safetensors.tensors().len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
     record.embedding.weight = load_tensor_2d(&mut tensors, "model.embed_tokens.weight", device, false);
+    pb.inc(1);
 
     for (i, layer) in record.layers.iter_mut().enumerate() {
         let layer_path = format!("model.layers.{}", i);
@@ -85,11 +95,13 @@ pub fn load_qwen_record<B: Backend>(
             &format!("{}.input_layernorm.weight", layer_path),
             device,
         );
+        pb.inc(1);
         layer.mlp_norm.gamma = load_tensor_1d(
             &mut tensors,
             &format!("{}.post_attention_layernorm.weight", layer_path),
             device,
         );
+        pb.inc(1);
 
         layer.self_attn.q_proj.weight = load_tensor_2d(
             &mut tensors,
@@ -97,12 +109,14 @@ pub fn load_qwen_record<B: Backend>(
             device,
             true,
         );
+        pb.inc(1);
         if config.qkv_bias {
             layer.self_attn.q_proj.bias = Some(load_tensor_1d(
                 &mut tensors,
                 &format!("{}.self_attn.q_proj.bias", layer_path),
                 device,
             ));
+            pb.inc(1);
         }
 
         layer.self_attn.k_proj.weight = load_tensor_2d(
@@ -111,12 +125,14 @@ pub fn load_qwen_record<B: Backend>(
             device,
             true,
         );
+        pb.inc(1);
         if config.qkv_bias {
             layer.self_attn.k_proj.bias = Some(load_tensor_1d(
                 &mut tensors,
                 &format!("{}.self_attn.k_proj.bias", layer_path),
                 device,
             ));
+            pb.inc(1);
         }
 
         layer.self_attn.v_proj.weight = load_tensor_2d(
@@ -125,12 +141,14 @@ pub fn load_qwen_record<B: Backend>(
             device,
             true,
         );
+        pb.inc(1);
         if config.qkv_bias {
             layer.self_attn.v_proj.bias = Some(load_tensor_1d(
                 &mut tensors,
                 &format!("{}.self_attn.v_proj.bias", layer_path),
                 device,
             ));
+            pb.inc(1);
         }
 
         layer.self_attn.o_proj.weight = load_tensor_2d(
@@ -139,6 +157,7 @@ pub fn load_qwen_record<B: Backend>(
             device,
             true,
         );
+        pb.inc(1);
 
         layer.mlp.gate_proj.weight = load_tensor_2d(
             &mut tensors,
@@ -146,26 +165,28 @@ pub fn load_qwen_record<B: Backend>(
             device,
             true,
         );
+        pb.inc(1);
         layer.mlp.up_proj.weight = load_tensor_2d(
             &mut tensors,
             &format!("{}.mlp.up_proj.weight", layer_path),
             device,
             true,
         );
+        pb.inc(1);
         layer.mlp.down_proj.weight = load_tensor_2d(
             &mut tensors,
             &format!("{}.mlp.down_proj.weight", layer_path),
             device,
             true,
         );
+        pb.inc(1);
     }
 
     record.rms_norm.gamma = load_tensor_1d(&mut tensors, "model.norm.weight", device);
+    pb.inc(1);
 
-    println!(
-        "Remaining tensors after loading: {:?}",
-        tensors.keys().collect::<Vec<_>>()
-    );
+    pb.finish();
+    println!("Model weights loaded.");
 
     record
 }

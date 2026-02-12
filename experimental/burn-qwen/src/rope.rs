@@ -8,24 +8,30 @@ pub fn apply_rotary_pos_emb<B: Backend>(
     cos_cached: &Tensor<B, 4>,
     seq_len: usize,
 ) -> (Tensor<B, 4>, Tensor<B, 4>) {
-    let [batch_size, num_heads, _, head_dim] = query.dims();
+    let [_batch_size, _num_q_heads, _seq_len, head_dim] = query.dims();
 
-    let query_rot = query.clone().reshape([batch_size, num_heads, seq_len, head_dim / 2, 2]);
-    let query_left: Tensor<B, 4> = query_rot.clone().slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 0..1]).squeeze_dim(4);
-    let query_right: Tensor<B, 4> = query_rot.slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 1..2]).squeeze_dim(4);
+    // Process query
+    let query_rotated = {
+        let [batch_size, num_heads, seq_len, _] = query.dims();
+        let query_rot = query.clone().reshape([batch_size, num_heads, seq_len, head_dim / 2, 2]);
+        let query_left: Tensor<B, 4> = query_rot.clone().slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 0..1]).squeeze_dim(4);
+        let query_right: Tensor<B, 4> = query_rot.slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 1..2]).squeeze_dim(4);
+        let rotated = Tensor::cat(vec![query_right.neg(), query_left], 3);
+        rotated.reshape([batch_size, num_heads, seq_len, head_dim])
+    };
 
-    let query_rotated: Tensor<B, 4> = Tensor::cat(vec![query_right.neg(), query_left], 4);
-    let query_rotated: Tensor<B, 4> = query_rotated.reshape([batch_size, num_heads, seq_len, head_dim]);
+    // Process key
+    let key_rotated = {
+        let [batch_size, num_heads, seq_len, _] = key.dims();
+        let key_rot = key.clone().reshape([batch_size, num_heads, seq_len, head_dim / 2, 2]);
+        let key_left: Tensor<B, 4> = key_rot.clone().slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 0..1]).squeeze_dim(4);
+        let key_right: Tensor<B, 4> = key_rot.slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 1..2]).squeeze_dim(4);
+        let rotated = Tensor::cat(vec![key_right.neg(), key_left], 3);
+        rotated.reshape([batch_size, num_heads, seq_len, head_dim])
+    };
 
-    let key_rot = key.clone().reshape([batch_size, num_heads, seq_len, head_dim / 2, 2]);
-    let key_left: Tensor<B, 4> = key_rot.clone().slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 0..1]).squeeze_dim(4);
-    let key_right: Tensor<B, 4> = key_rot.slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim/2, 1..2]).squeeze_dim(4);
-
-    let key_rotated: Tensor<B, 4> = Tensor::cat(vec![key_right.neg(), key_left], 4);
-    let key_rotated: Tensor<B, 4> = key_rotated.reshape([batch_size, num_heads, seq_len, head_dim]);
-
-    let cos = cos_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]).repeat(&query.dims());
-    let sin = sin_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]).repeat(&query.dims());
+    let cos = cos_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
+    let sin = sin_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
 
     let q_out = query.mul(cos.clone()).add(query_rotated.mul(sin.clone()));
     let k_out = key.mul(cos).add(key_rotated.mul(sin));

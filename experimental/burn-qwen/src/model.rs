@@ -375,7 +375,7 @@ impl<B: Backend> QwenAttention<B> {
         };
 
         // Scaled Dot-Product Attention
-        let scores = q_rotated.matmul(k_gqa.transpose().swap_dims(-1, -2)); // [batch_size, num_attention_heads, seq_len, seq_len]
+        let scores = q_rotated.matmul(k_gqa.swap_dims(2, 3)); // [batch_size, num_attention_heads, seq_len, seq_len]
         let mut scores = scores.div_scalar(f64::sqrt(self.head_dim as f64));
 
         // Causal mask
