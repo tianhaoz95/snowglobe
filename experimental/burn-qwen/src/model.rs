@@ -90,7 +90,7 @@ impl Default for QwenConfig {
             num_attention_heads: 14,
             num_key_value_heads: 2,
             intermediate_size: 4864,
-            rope_theta: 1000000.0, // A common value for Qwen2, but can vary
+            rope_theta: 1000000.0,
             max_position_embeddings: 32768,
             rms_norm_eps: 1e-6,
             use_cache: true,      // Typically true for inference
@@ -358,7 +358,10 @@ impl<B: Backend> QwenAttention<B> {
         let k_gqa = if self.num_key_value_heads < self.num_attention_heads {
             // Repeat the K heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
-            k_rotated.repeat(&[1, num_reps, 1, 1])
+            // k_rotated.repeat(&[1, num_reps, 1, 1])
+            k_rotated.reshape([batch_size, self.num_key_value_heads, 1, seq_len, self.head_dim])
+                .repeat(&[1, 1, num_reps, 1, 1])
+                .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
         } else {
             k_rotated
         };

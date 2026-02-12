@@ -26,8 +26,6 @@ fn main() {
     println!("Initializing Qwen model...");
     let mut model: Qwen<Backend> = config.init(&device);
 
-
-
     // --- Safetensors loading ---
     let api = Api::new().unwrap();
     let repo_id = "Qwen/Qwen2.5-0.5B-Instruct".to_string();
@@ -83,6 +81,10 @@ fn main() {
 
         // Get logits for the last token
         let next_token_logits = output.slice([0..1, (token_ids.len() - 1)..(token_ids.len()), 0..config.vocab_size]).reshape([1, config.vocab_size]); // shape [1, vocab_size]
+        // let temperature = 0.7;
+        // let logits = next_token_logits.div_scalar(temperature);
+        // let probs = burn::tensor::activation::softmax(logits, 1);
+        // let next_token_id = probs.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
         let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
 
         if next_token_id == tokenizer.token_to_id("<|im_end|>").unwrap() {
