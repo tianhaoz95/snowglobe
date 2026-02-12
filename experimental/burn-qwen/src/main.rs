@@ -3,11 +3,12 @@ mod rope;
 mod weight; // Add this line to import the weight module
 
 use crate::model::QwenConfig;
-use burn::backend::NdArray;
+use burn::backend::Wgpu;
 use crate::model::Qwen;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
 use tokenizers::Tokenizer;
+use burn::backend::wgpu::WgpuDevice;
 
 
 use hf_hub::api::sync::Api;
@@ -17,10 +18,10 @@ use std::fs;
 use std::io::{self, Write};
 
 fn main() {
-    type Backend = NdArray<f32>;
+    type Backend = Wgpu<f32, i32>;
 
     let config = QwenConfig::default();
-    let device = <Backend as burn::tensor::backend::Backend>::Device::Cpu;
+    let device = WgpuDevice::DefaultDevice;
 
     println!("Initializing Qwen model...");
     let mut model: Qwen<Backend> = config.init(&device);
@@ -82,7 +83,7 @@ fn main() {
 
         // Get logits for the last token
         let next_token_logits = output.slice([0..1, (token_ids.len() - 1)..(token_ids.len()), 0..config.vocab_size]).reshape([1, config.vocab_size]); // shape [1, vocab_size]
-        let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i64>().unwrap()[0] as u32;
+        let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
 
         if next_token_id == tokenizer.token_to_id("<|im_end|>").unwrap() {
             break;

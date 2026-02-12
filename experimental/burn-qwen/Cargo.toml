@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.20.1", features = ["std", "train", "ndarray"] }
+burn = { version = "0.20.1", features = ["std", "train", "wgpu"] }
 burn-autodiff = { version = "0.20.1", features = ["std"] }
 burn-tensor = { version = "0.20.1", features = ["std"] }
 burn-wgpu = { version = "0.20.1", optional = true }
