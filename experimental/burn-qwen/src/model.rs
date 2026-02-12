@@ -446,7 +446,9 @@ impl<B: Backend> QwenMLP<B> {
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
         let gate = self.gate_proj.forward(input.clone());
         let up = self.up_proj.forward(input);
-        let swish_gate = gate.clone().mul(burn::tensor::activation::sigmoid(gate.clone())); // Use burn::tensor::activation::sigmoid
-        self.down_proj.forward(swish_gate.mul(up))
+
+        let activated_gate = burn::tensor::activation::silu(gate);
+        let intermediate = activated_gate.mul(up);
+        self.down_proj.forward(intermediate)
     }
 }
