@@ -39,7 +39,7 @@ class _MyAppState extends State<MyApp> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const CircularProgressIndicator();
               } else if (snapshot.hasError) {
-                debugPrint('Error during initialization: ${snapshot.error}');
+                print('Error during initialization: ${snapshot.error}');
                 return Text('Error: ${snapshot.error}');
               } else {
                 return Text(
