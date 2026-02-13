@@ -64,76 +64,74 @@ fn main() {
     println!("Tokenizer downloaded to: {:?}", tokenizer_path);
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
-    // 1. Create a meaningful input tensor
-    let device = &model.devices()[0]; // Get the device from the model
-
-    // let input_text = "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n";
-    // println!("Encoding input: '{}'", input_text);
-    // let encoding = tokenizer.encode(input_text, true).unwrap();
-    // let mut token_ids = encoding.get_ids().to_vec(); // Vec<u32>
-
-    // 1. Get special token IDs (verify these against your tokenizer.json or vocab)
     let im_start_id = tokenizer.token_to_id("<|im_start|>").expect("Missing <|im_start|>");
     let im_end_id = tokenizer.token_to_id("<|im_end|>").expect("Missing <|im_end|>");
     let newline_id = tokenizer.token_to_id("\n").unwrap_or(198); // Common ID for \n
 
-    // 2. Construct the prompt manually to guarantee correctness
-    let system_text = "You are a helpful assistant.";
-    // let user_text = "what is 1+1? only answer with numbers";
-    let user_text = "what are you?";
-
-    let system_tokens = tokenizer.encode(system_text, false).unwrap().get_ids().to_vec();
-    let user_tokens = tokenizer.encode(user_text, false).unwrap().get_ids().to_vec();
-
     let mut token_ids = Vec::new();
+    let system_text = "You are a helpful assistant.";
+    let system_tokens = tokenizer.encode(system_text, false).unwrap().get_ids().to_vec();
     token_ids.push(im_start_id);
     token_ids.extend(tokenizer.encode("system", false).unwrap().get_ids());
     token_ids.push(newline_id);
     token_ids.extend(system_tokens);
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
-    token_ids.push(im_start_id);
-    token_ids.extend(tokenizer.encode("user", false).unwrap().get_ids());
-    token_ids.push(newline_id);
-    token_ids.extend(user_tokens);
-    token_ids.push(im_end_id);
-    token_ids.push(newline_id);
-    token_ids.push(im_start_id);
-    token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
-    token_ids.push(newline_id);
 
-    println!("Generating response...");
+    loop {
+        print!("You: ");
+        io::stdout().flush().unwrap();
+        let mut user_input = String::new();
+        io::stdin().read_line(&mut user_input).unwrap();
+        let user_input = user_input.trim();
 
-    for _ in 0..16 {
-        let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(
-                token_ids.clone().into_iter().map(|x| x as i32).collect(),
-                Shape::new([1, token_ids.len()])
-            ),
-            device
-        );
-
-        let output = model.forward(input_tensor);
-
-        // Get logits for the last token
-        let next_token_logits = output.slice([0..1, (token_ids.len() - 1)..(token_ids.len()), 0..config.vocab_size]).reshape([1, config.vocab_size]); // shape [1, vocab_size]
-        // let temperature = 0.7;
-        // let logits = next_token_logits.div_scalar(temperature);
-        // let probs = burn::tensor::activation::softmax(logits, 1);
-        // let next_token_id = probs.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
-        let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
-
-        if next_token_id == tokenizer.token_to_id("<|im_end|>").unwrap() {
+        if user_input.eq_ignore_ascii_case("exit") {
             break;
         }
 
-        token_ids.push(next_token_id);
+        let user_tokens = tokenizer.encode(user_input, false).unwrap().get_ids().to_vec();
 
-        let decoded = tokenizer.decode(&[next_token_id], true).unwrap();
-        print!("{}", decoded);
-        io::stdout().flush().unwrap(); // To print token by token
+        token_ids.push(im_start_id);
+        token_ids.extend(tokenizer.encode("user", false).unwrap().get_ids());
+        token_ids.push(newline_id);
+        token_ids.extend(user_tokens);
+        token_ids.push(im_end_id);
+        token_ids.push(newline_id);
+        token_ids.push(im_start_id);
+        token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+        token_ids.push(newline_id);
+
+        print!("Assistant: ");
+        io::stdout().flush().unwrap();
+
+        let mut assistant_response = Vec::new();
+        for _ in 0..1024 { // Generate up to 1024 tokens
+            let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
+                TensorData::new(
+                    token_ids.clone().into_iter().map(|x| x as i32).collect(),
+                    Shape::new([1, token_ids.len()])
+                ),
+                &device
+            );
+
+            let output = model.forward(input_tensor);
+
+            let next_token_logits = output.slice([0..1, (token_ids.len() - 1)..(token_ids.len()), 0..config.vocab_size]).reshape([1, config.vocab_size]);
+            let next_token_id = next_token_logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
+
+            if next_token_id == im_end_id {
+                break;
+            }
+
+            token_ids.push(next_token_id);
+            assistant_response.push(next_token_id);
+
+            let decoded = tokenizer.decode(&[next_token_id], true).unwrap();
+            print!("{}", decoded);
+            io::stdout().flush().unwrap();
+        }
+        println!();
+        token_ids.push(im_end_id);
+        token_ids.push(newline_id);
     }
-
-    println!();
-
 }
