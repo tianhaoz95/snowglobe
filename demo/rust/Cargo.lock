@@ -5629,13 +5629,17 @@ dependencies = [
  "burn-autodiff",
  "burn-tensor",
  "bytemuck",
+ "dashmap 5.5.3",
  "half",
  "hf-hub",
  "indicatif 0.18.3",
+ "once_cell",
+ "parking_lot",
  "safetensors 0.3.3",
  "serde",
  "serde_json",
  "tokenizers",
+ "uuid",
 ]
 
 [[package]]

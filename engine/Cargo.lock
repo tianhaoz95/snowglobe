@@ -1897,6 +1897,19 @@ dependencies = [
 
 [[package]]
 name = "dashmap"
+version = "5.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+dependencies = [
+ "cfg-if",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "dashmap"
 version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
@@ -2779,7 +2792,7 @@ version = "20.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad89218e74850f42d364ed3877c7291f0474c8533502df91bb877ecc5cb0dd40"
 dependencies = [
- "dashmap",
+ "dashmap 6.1.0",
  "gix-fs",
  "libc",
  "parking_lot",
@@ -5431,13 +5444,17 @@ dependencies = [
  "burn-tensor",
  "burn-wgpu",
  "bytemuck",
+ "dashmap 5.5.3",
  "half",
  "hf-hub",
  "indicatif 0.18.3",
+ "once_cell",
+ "parking_lot",
  "safetensors 0.3.3",
  "serde",
  "serde_json",
  "tokenizers",
+ "uuid",
 ]
 
 [[package]]
