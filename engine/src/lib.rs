@@ -16,6 +16,7 @@ use burn::backend::Wgpu;
 use hf_hub::api::sync::Api;
 use hf_hub::{Repo, RepoType};
 use safetensors::SafeTensors;
+use std::env;
 use std::fs;
 use dashmap::DashMap;
 use uuid::Uuid;
@@ -28,7 +29,10 @@ static GLOBAL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
 static GLOBAL_DEVICE: OnceCell<WgpuDevice> = OnceCell::new();
 static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
 
-pub fn init() {
+pub fn init(cache_dir: String) {
+    unsafe {
+        env::set_var("HF_HOME", &cache_dir);
+    }
     let config = QwenConfig::default();
     let device = WgpuDevice::DefaultDevice;
 

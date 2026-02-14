@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:snowglobedemo/src/rust/api/simple.dart';
 import 'package:snowglobedemo/src/rust/frb_generated.dart';
+import 'dart:io';
 
 void main() {
   runApp(const MyApp());
@@ -24,7 +26,8 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _initEngine() async {
     await RustLib.init();
-    await initEngine();
+    final cacheDir = await getApplicationSupportDirectory();
+    await initEngine(cacheDir: cacheDir.path);
   }
 
   @override

@@ -9,4 +9,5 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiSimpleGreet(name: name);
 
-Future<void> initEngine() => RustLib.instance.api.crateApiSimpleInitEngine();
+Future<void> initEngine({required String cacheDir}) =>
+    RustLib.instance.api.crateApiSimpleInitEngine(cacheDir: cacheDir);

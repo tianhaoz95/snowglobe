@@ -134,11 +134,12 @@ fn wire__crate__api__simple__init_engine_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_cache_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
-                        crate::api::simple::init_engine();
+                        crate::api::simple::init_engine(api_cache_dir);
                     })?;
                     Ok(output_ok)
                 })())

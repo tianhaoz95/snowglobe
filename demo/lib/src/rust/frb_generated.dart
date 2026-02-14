@@ -81,7 +81,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSimpleInitApp();
 
-  Future<void> crateApiSimpleInitEngine();
+  Future<void> crateApiSimpleInitEngine({required String cacheDir});
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -148,11 +148,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  Future<void> crateApiSimpleInitEngine() {
+  Future<void> crateApiSimpleInitEngine({required String cacheDir}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(cacheDir, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -165,14 +166,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSimpleInitEngineConstMeta,
-        argValues: [],
+        argValues: [cacheDir],
         apiImpl: this,
       ),
     );
   }
 
   TaskConstMeta get kCrateApiSimpleInitEngineConstMeta =>
-      const TaskConstMeta(debugName: "init_engine", argNames: []);
+      const TaskConstMeta(debugName: "init_engine", argNames: ["cacheDir"]);
 
   @protected
   String dco_decode_String(dynamic raw) {
