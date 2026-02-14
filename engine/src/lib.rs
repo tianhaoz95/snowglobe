@@ -13,12 +13,12 @@ use tokenizers::Tokenizer;
 use crate::weight::load_qwen_record;
 use burn::backend::wgpu::WgpuDevice;
 use burn::backend::Wgpu;
-use hf_hub::api::sync::Api;
-use hf_hub::{Repo, RepoType};
 use safetensors::SafeTensors;
-use std::env;
-use std::fs;
+use std::path::Path;
 use dashmap::DashMap;
+use futures_util::StreamExt;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 type Backend = Wgpu<f32, i32>;
@@ -29,31 +29,37 @@ static GLOBAL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
 static GLOBAL_DEVICE: OnceCell<WgpuDevice> = OnceCell::new();
 static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
 
-pub fn init(cache_dir: String) {
-    unsafe {
-        env::set_var("HF_HOME", &cache_dir);
-    }
+pub async fn init(cache_dir: String) {
     let config = QwenConfig::default();
     let device = WgpuDevice::DefaultDevice;
 
     let mut model: Qwen<Backend> = config.init(&device);
 
-    let api = Api::new().unwrap();
-    let repo_id = "Qwen/Qwen2.5-0.5B-Instruct".to_string();
-    let model_file_name = "model.safetensors".to_string();
-    let tokenizer_file_name = "tokenizer.json".to_string();
+    let model_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
+    let tokenizer_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
 
-    let repo = api.repo(Repo::with_revision(
-        repo_id.clone(),
-        RepoType::Model,
-        "main".to_string(),
-    ));
+    let model_path = Path::new(&cache_dir).join("model.safetensors");
+    let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
 
-    let model_path = repo.get(&model_file_name).unwrap();
-    let tokenizer_path = repo.get(&tokenizer_file_name).unwrap();
+    if !model_path.exists() {
+        let mut stream = reqwest::get(model_url).await.unwrap().bytes_stream();
+        let mut file = File::create(&model_path).await.unwrap();
+        while let Some(item) = stream.next().await {
+            file.write_all(&item.unwrap()).await.unwrap();
+        }
+    }
 
-    let buffer = fs::read(&model_path).unwrap();
-    let safetensors = SafeTensors::deserialize(&buffer).unwrap();
+    if !tokenizer_path.exists() {
+        let mut stream = reqwest::get(tokenizer_url).await.unwrap().bytes_stream();
+        let mut file = File::create(&tokenizer_path).await.unwrap();
+        while let Some(item) = stream.next().await {
+            file.write_all(&item.unwrap()).await.unwrap();
+        }
+    }
+
+    let file = std::fs::File::open(&model_path).unwrap();
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
+    let safetensors = SafeTensors::deserialize(&mmap).unwrap();
 
     let record = model.clone().into_record();
     let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
@@ -102,7 +108,7 @@ pub fn generate_response(
     let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
     let config = GLOBAL_CONFIG.get().unwrap();
     let device = GLOBAL_DEVICE.get().unwrap();
-    let mut model = GLOBAL_MODEL.get().unwrap().lock();
+    let model = GLOBAL_MODEL.get().unwrap().lock();
 
     let mut token_ids = SESSIONS.get().unwrap().get_mut(session_id).unwrap();
 

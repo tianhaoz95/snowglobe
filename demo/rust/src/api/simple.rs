@@ -4,8 +4,8 @@ pub fn greet(name: String) -> String {
     generate(name)
 }
 
-pub fn init_engine(cache_dir: String) {
-    snowglobe::init(cache_dir);
+pub async fn init_engine(cache_dir: String) {
+    snowglobe::init(cache_dir).await;
 }
 
 #[flutter_rust_bridge::frb(init)]
