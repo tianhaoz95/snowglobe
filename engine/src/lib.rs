@@ -181,17 +181,17 @@ mod tests {
         assert_eq!(result, "Hello, snowglobe :)");
     }
 
-    #[test]
-    fn test_one_plus_one() {
-        init();
+    #[tokio::test]
+    async fn test_one_plus_one() {
+        let cache_dir = "./tmp/testing";
+        tokio::fs::create_dir_all(cache_dir).await.unwrap();
+        init(cache_dir.to_string()).await;
         let session_id = init_session();
         let response = generate_response(
             &session_id,
             "what is 1+1? only answer with numbers",
         );
 
-        // The model gives a creative response, not just "2".
-        // This assertion is updated to match the current output.
-        assert_eq!(response, "It's not possible to add 1+1 because they are different numbers.");
+        assert_eq!(response.trim(), "2");
     }
 }
