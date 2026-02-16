@@ -6,8 +6,16 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-Future<String> greet({required String name}) =>
-    RustLib.instance.api.crateApiSimpleGreet(name: name);
-
 Future<void> initEngine({required String cacheDir}) =>
     RustLib.instance.api.crateApiSimpleInitEngine(cacheDir: cacheDir);
+
+Future<String> initSession() =>
+    RustLib.instance.api.crateApiSimpleInitSession();
+
+Future<String> generateResponse({
+  required String sessionId,
+  required String prompt,
+}) => RustLib.instance.api.crateApiSimpleGenerateResponse(
+  sessionId: sessionId,
+  prompt: prompt,
+);

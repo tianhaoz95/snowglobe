@@ -66,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1830265073;
+  int get rustContentHash => 1554339725;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -77,11 +77,16 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  Future<String> crateApiSimpleGreet({required String name});
+  Future<String> crateApiSimpleGenerateResponse({
+    required String sessionId,
+    required String prompt,
+  });
 
   Future<void> crateApiSimpleInitApp();
 
   Future<void> crateApiSimpleInitEngine({required String cacheDir});
+
+  Future<String> crateApiSimpleInitSession();
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -93,12 +98,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  Future<String> crateApiSimpleGreet({required String name}) {
+  Future<String> crateApiSimpleGenerateResponse({
+    required String sessionId,
+    required String prompt,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(name, serializer);
+          sse_encode_String(sessionId, serializer);
+          sse_encode_String(prompt, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -110,15 +119,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiSimpleGreetConstMeta,
-        argValues: [name],
+        constMeta: kCrateApiSimpleGenerateResponseConstMeta,
+        argValues: [sessionId, prompt],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSimpleGreetConstMeta =>
-      const TaskConstMeta(debugName: "greet", argNames: ["name"]);
+  TaskConstMeta get kCrateApiSimpleGenerateResponseConstMeta =>
+      const TaskConstMeta(
+        debugName: "generate_response",
+        argNames: ["sessionId", "prompt"],
+      );
 
   @override
   Future<void> crateApiSimpleInitApp() {
@@ -174,6 +186,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiSimpleInitEngineConstMeta =>
       const TaskConstMeta(debugName: "init_engine", argNames: ["cacheDir"]);
+
+  @override
+  Future<String> crateApiSimpleInitSession() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSimpleInitSessionConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSimpleInitSessionConstMeta =>
+      const TaskConstMeta(debugName: "init_session", argNames: []);
 
   @protected
   String dco_decode_String(dynamic raw) {

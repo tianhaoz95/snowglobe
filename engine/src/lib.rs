@@ -46,9 +46,9 @@ pub async fn init(cache_dir: String) {
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
 
     // For debugging, delete the model if it already exists
-    if model_path.exists() {
-        std::fs::remove_file(&model_path).unwrap();
-    }
+    // if model_path.exists() {
+    //     std::fs::remove_file(&model_path).unwrap();
+    // }
 
     if !model_path.exists() {
         let mut stream = reqwest::get(model_url).await.unwrap().bytes_stream();
@@ -142,7 +142,7 @@ pub fn generate_response(
     token_ids.push(newline_id);
 
     let mut assistant_response_ids = Vec::new();
-    for _ in 0..1024 {
+    for _ in 0..8 {
         // Generate up to 1024 tokens
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(

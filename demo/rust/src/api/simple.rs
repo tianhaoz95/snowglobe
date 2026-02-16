@@ -1,11 +1,15 @@
 use snowglobe::{self, generate};
 
-pub fn greet(name: String) -> String {
-    generate(name)
-}
-
 pub async fn init_engine(cache_dir: String) {
     snowglobe::init(cache_dir).await;
+}
+
+pub fn init_session() -> String {
+    snowglobe::init_session()
+}
+
+pub fn generate_response(session_id: &str, prompt: &str) -> String {
+    snowglobe::generate_response(session_id, prompt)
 }
 
 #[flutter_rust_bridge::frb(init)]

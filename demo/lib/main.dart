@@ -16,7 +16,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  Future<void>? _initFuture;
+  Future<String>? _initFuture;
 
   @override
   void initState() {
@@ -24,10 +24,15 @@ class _MyAppState extends State<MyApp> {
     _initFuture = _initEngine();
   }
 
-  Future<void> _initEngine() async {
+  Future<String> _initEngine() async {
     await RustLib.init();
     final cacheDir = await getApplicationSupportDirectory();
     await initEngine(cacheDir: cacheDir.path);
+    final sessionId = await initSession();
+    print('Session ID: $sessionId');
+    final response = await generateResponse(sessionId: sessionId, prompt: 'Hello');
+    print('Response: $response');
+    return response;
   }
 
   @override
@@ -36,7 +41,7 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         appBar: AppBar(title: const Text('flutter_rust_bridge quickstart')),
         body: Center(
-          child: FutureBuilder<void>(
+          child: FutureBuilder<String>(
             future: _initFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -46,7 +51,7 @@ class _MyAppState extends State<MyApp> {
                 return Text('Error: ${snapshot.error}');
               } else {
                 return Text(
-                  'Action: Call Rust `greet("Snowglobe")`\nResult: `${greet(name: "Snowglobe")}`',
+                  'Action: Call initEngine() and generateResponse()\nResult: `${snapshot.data}`',
                 );
               }
             },
