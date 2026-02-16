@@ -7,6 +7,7 @@ pub mod weight;
 use crate::model::{Qwen, QwenConfig};
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
+use burn_wgpu::RuntimeOptions;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use tokenizers::Tokenizer;
@@ -32,6 +33,8 @@ static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
 pub async fn init(cache_dir: String) {
     let config = QwenConfig::default();
     let device = WgpuDevice::DefaultDevice;
+
+    let _setup = burn_wgpu::init_setup_async::<burn_wgpu::graphics::Metal>(&device, RuntimeOptions::default()).await;
 
     let mut model: Qwen<Backend> = config.init(&device);
 
