@@ -196,10 +196,14 @@ mod tests {
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
         init(cache_dir.to_string()).await;
         let session_id = init_session();
+        let prompt = "what is 1+1? only answer with numbers";
         let response = generate_response(
             &session_id,
-            "what is 1+1? only answer with numbers",
+            prompt,
         );
+
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
 
         assert_eq!(response.trim(), "2");
     }
