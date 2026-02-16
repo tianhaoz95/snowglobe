@@ -22,7 +22,8 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-type Backend = Wgpu<f32, i32>;
+// type Backend = Wgpu<f32, i32>;
+type Backend = Wgpu<half::f16, i32>;
 
 static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
 static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
