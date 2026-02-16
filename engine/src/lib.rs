@@ -44,6 +44,11 @@ pub async fn init(cache_dir: String) {
     let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
 
+    // For debugging, delete the model if it already exists
+    if model_path.exists() {
+        std::fs::remove_file(&model_path).unwrap();
+    }
+
     if !model_path.exists() {
         let mut stream = reqwest::get(model_url).await.unwrap().bytes_stream();
         let mut file = File::create(&model_path).await.unwrap();
