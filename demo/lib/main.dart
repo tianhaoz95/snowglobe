@@ -30,7 +30,7 @@ class _MyAppState extends State<MyApp> {
     await initEngine(cacheDir: cacheDir.path);
     final sessionId = await initSession();
     print('Session ID: $sessionId');
-    final response = await generateResponse(sessionId: sessionId, prompt: 'Hello');
+    final response = await generateResponse(sessionId: sessionId, prompt: 'what is 1+1? only answer with numbers');
     print('Response: $response');
     return response;
   }
