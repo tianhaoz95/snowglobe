@@ -74,6 +74,11 @@ pub async fn init(cache_dir: String) {
     let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
     model = model.load_record(model_with_weights);
 
+    // CRITICAL: Ensure the 'mmap' and 'safetensors' variables are dropped or 
+    // go out of scope here to free up that ~1-2GB of RAM.
+    drop(safetensors);
+    drop(mmap);
+
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
     GLOBAL_MODEL.set(Mutex::new(model)).unwrap();
