@@ -5,19 +5,19 @@ pub mod rope;
 pub mod weight;
 
 use crate::model::{Qwen, QwenConfig};
+use crate::weight::load_qwen_record;
+use burn::backend::Wgpu;
+use burn::backend::wgpu::WgpuDevice;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
 use burn_wgpu::RuntimeOptions;
-use once_cell::sync::OnceCell;
-use parking_lot::Mutex;
-use tokenizers::Tokenizer;
-use crate::weight::load_qwen_record;
-use burn::backend::wgpu::WgpuDevice;
-use burn::backend::Wgpu;
-use safetensors::SafeTensors;
-use std::path::Path;
 use dashmap::DashMap;
 use futures_util::StreamExt;
+use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
+use safetensors::SafeTensors;
+use std::path::Path;
+use tokenizers::Tokenizer;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -35,12 +35,18 @@ pub async fn init(cache_dir: String) {
     let config = QwenConfig::default();
     let device = WgpuDevice::DefaultDevice;
 
-    let _setup = burn_wgpu::init_setup_async::<burn_wgpu::graphics::Metal>(&device, RuntimeOptions::default()).await;
+    let _setup = burn_wgpu::init_setup_async::<burn_wgpu::graphics::Metal>(
+        &device,
+        RuntimeOptions::default(),
+    )
+    .await;
 
     let mut model: Qwen<Backend> = config.init(&device);
 
-    let model_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
-    let tokenizer_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
+    let model_url =
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
+    let tokenizer_url =
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
 
     let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
@@ -74,7 +80,7 @@ pub async fn init(cache_dir: String) {
     let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
     model = model.load_record(model_with_weights);
 
-    // CRITICAL: Ensure the 'mmap' and 'safetensors' variables are dropped or 
+    // CRITICAL: Ensure the 'mmap' and 'safetensors' variables are dropped or
     // go out of scope here to free up that ~1-2GB of RAM.
     drop(safetensors);
     drop(mmap);
@@ -100,14 +106,21 @@ pub fn init_session() -> String {
         .expect("Missing <|im_end|>");
     let newline_id = tokenizer.token_to_id("\n").unwrap_or(198); // Common ID for \n
     let system_text = "You are a helpful assistant.";
-    let system_tokens = tokenizer.encode(system_text, false).unwrap().get_ids().to_vec();
+    let system_tokens = tokenizer
+        .encode(system_text, false)
+        .unwrap()
+        .get_ids()
+        .to_vec();
     token_ids.push(im_start_id);
     token_ids.extend(tokenizer.encode("system", false).unwrap().get_ids());
     token_ids.push(newline_id);
     token_ids.extend(system_tokens);
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
-    SESSIONS.get().unwrap().insert(session_id.clone(), token_ids);
+    SESSIONS
+        .get()
+        .unwrap()
+        .insert(session_id.clone(), token_ids);
     session_id
 }
 
@@ -115,10 +128,7 @@ pub fn generate(name: String) -> String {
     format!("Hello, {name} :)")
 }
 
-pub fn generate_response(
-    session_id: &str,
-    prompt: &str,
-) -> String {
+pub fn generate_response(session_id: &str, prompt: &str) -> String {
     let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
     let config = GLOBAL_CONFIG.get().unwrap();
     let device = GLOBAL_DEVICE.get().unwrap();
@@ -166,8 +176,11 @@ pub fn generate_response(
                 0..config.vocab_size,
             ])
             .reshape([1, config.vocab_size]);
-        let next_token_id =
-            next_token_logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0] as u32;
+        let next_token_id = next_token_logits
+            .argmax(1)
+            .into_data()
+            .into_vec::<i32>()
+            .unwrap()[0] as u32;
 
         if next_token_id == im_end_id {
             break;
@@ -179,15 +192,13 @@ pub fn generate_response(
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
 
-    tokenizer
-        .decode(&assistant_response_ids, true)
-.unwrap()
+    tokenizer.decode(&assistant_response_ids, true).unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn it_works() {
         let name = "snowglobe".to_string();
@@ -202,10 +213,7 @@ mod tests {
         init(cache_dir.to_string()).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
-        let response = generate_response(
-            &session_id,
-            prompt,
-        );
+        let response = generate_response(&session_id, prompt);
 
         println!("Prompt: {}", prompt);
         println!("Response: {}", response);
