@@ -119,7 +119,17 @@ impl<B: Backend> Qwen<B> {
             x = layer.forward(x);
         }
 
-        self.linear_output.forward(self.rms_norm.forward(x))
+        x = self.rms_norm.forward(x);
+
+        let logits = self.linear_output.forward(x);
+
+        // STABILIZER: If running on mobile Metal, 
+        // high logit values cause argmax to pick garbage tokens.
+        // Dividing by a constant keeps them in the safe f16 range (< 65504)
+        // without changing the result of the argmax.
+        // logits = logits / 16.0;
+
+        logits
     }
 }
 
