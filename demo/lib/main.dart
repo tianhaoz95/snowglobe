@@ -30,9 +30,19 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initEngine() async {
+    print('Initializing Rust library...');
     await RustLib.init();
+    print('Rust library initialized');
+    final backend = await checkBackend();
+    print('Backend check: $backend');
     final cacheDir = await getApplicationSupportDirectory();
-    await initEngine(cacheDir: cacheDir.path);
+    if (!await cacheDir.exists()) {
+      print('Creating cache directory: ${cacheDir.path}');
+      await cacheDir.create(recursive: true);
+    }
+    print('Cache directory: ${cacheDir.path}');
+    final initResult = await initEngine(cacheDir: cacheDir.path);
+    print('Engine initialized: $initResult');
     _sessionId = await initSession(); // Store the session ID
     print('Session ID: $_sessionId');
   }

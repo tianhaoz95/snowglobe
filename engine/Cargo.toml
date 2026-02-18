@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.20.1", features = ["std", "train", "wgpu"] }
+burn = { version = "0.20.1", features = ["std", "train", "wgpu", "fusion", "ndarray"] }
 burn-autodiff = { version = "0.20.1", features = ["std"] }
 burn-tensor = { version = "0.20.1", features = ["std"] }
 burn-wgpu = { version = "0.20.1", optional = true }
 bytemuck = "1.25.0"
-half = "2.7.1"
-reqwest = { version = "0.12.5", features = ["stream", "json"] }
+half = { version = "2.7.1", features = ["bytemuck", "serde"] }
+reqwest = { version = "0.12.5", features = ["stream", "json", "rustls-tls"] }
 safetensors = { version = "0.4.5"}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,4 +24,5 @@ futures-util = "0.3"
 memmap2 = "0.9.9"
 
 [features]
-default = ["dep:burn-wgpu"]
+default = []
+high_perf = ["burn/wgpu", "burn-wgpu"]

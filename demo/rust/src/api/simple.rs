@@ -1,7 +1,12 @@
-use snowglobe::{self, generate};
+use snowglobe::{self};
+use flutter_rust_bridge::DartFnFuture;
 
-pub async fn init_engine(cache_dir: String) {
-    snowglobe::init(cache_dir).await;
+pub async fn init_engine(cache_dir: String) -> String {
+    snowglobe::init(cache_dir).await
+}
+
+pub fn check_backend() -> String {
+    snowglobe::check_backend()
 }
 
 pub fn init_session() -> String {

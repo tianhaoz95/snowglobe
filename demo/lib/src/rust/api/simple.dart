@@ -6,8 +6,11 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-Future<void> initEngine({required String cacheDir}) =>
+Future<String> initEngine({required String cacheDir}) =>
     RustLib.instance.api.crateApiSimpleInitEngine(cacheDir: cacheDir);
+
+Future<String> checkBackend() =>
+    RustLib.instance.api.crateApiSimpleCheckBackend();
 
 Future<String> initSession() =>
     RustLib.instance.api.crateApiSimpleInitSession();

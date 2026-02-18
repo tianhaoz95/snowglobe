@@ -1,16 +1,17 @@
-# snowglobedemo
-
-A new Flutter project.
+# Snowglobe Demo & Benchmark
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+```bash
+flutter_rust_bridge_codegen generate --rust-features ""
 
-A few resources to get you started if this is your first Flutter project:
+# Build for Android with CPU only
+RUST_FEATURES="" flutter run 
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+# Build with GPU (default)
+flutter run
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+cp \
+    ~/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so \
+    ~/github/snowglobe/demo/build/rust_lib_snowglobedemo/jniLibs/debug/arm64-v8a
+```

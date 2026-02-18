@@ -6,14 +6,10 @@ pub mod weight;
 
 use crate::model::{Qwen, QwenConfig};
 use crate::weight::load_qwen_record;
-use burn::backend::Wgpu;
-use burn::backend::wgpu::WgpuDevice;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
-use burn_wgpu::RuntimeOptions;
 use dashmap::DashMap;
 use futures_util::StreamExt;
-use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use safetensors::SafeTensors;
 use std::path::Path;
@@ -21,25 +17,75 @@ use tokenizers::Tokenizer;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
+use once_cell::sync::OnceCell;
 
-// type Backend = Wgpu<f32, i32>;
-type Backend = Wgpu<half::f16, i32>;
+#[cfg(feature = "high_perf")]
+pub mod backend_setup {
+    use burn::backend::Wgpu;
+    use burn::backend::wgpu::WgpuDevice;
+    use once_cell::sync::OnceCell;
+
+    // GPU Types: Wgpu takes <Float, Int>
+    pub type Backend = Wgpu<f32, i32>;
+    pub type Device = WgpuDevice;
+    
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub type GraphicsApi = burn_wgpu::graphics::Metal;
+    #[cfg(target_os = "android")]
+    pub type GraphicsApi = burn_wgpu::graphics::Vulkan;
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+    pub type GraphicsApi = burn_wgpu::graphics::AutoGraphicsApi;
+
+    pub static GLOBAL_DEVICE: OnceCell<Device> = OnceCell::new();
+}
+
+#[cfg(not(feature = "high_perf"))]
+pub mod backend_setup {
+    use burn::backend::NdArray;
+    use burn::backend::ndarray::NdArrayDevice;
+    use once_cell::sync::OnceCell;
+    
+    // CPU Types: NdArray in 0.20.1 usually only takes <Float>
+    pub type Backend = NdArray<f32, i32>;
+    pub type Device = NdArrayDevice;
+
+    pub static GLOBAL_DEVICE: OnceCell<Device> = OnceCell::new();
+}
+
+pub use backend_setup::Backend;
+pub use backend_setup::Device;
+pub use backend_setup::GLOBAL_DEVICE;
 
 static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
 static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
 static GLOBAL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
-static GLOBAL_DEVICE: OnceCell<WgpuDevice> = OnceCell::new();
 static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
 
-pub async fn init(cache_dir: String) {
-    let config = QwenConfig::default();
-    let device = WgpuDevice::DefaultDevice;
+pub fn check_backend() -> String {
+    #[cfg(feature = "high_perf")]
+    return "🚀 USING GPU (WGPU/VULKAN)".to_string();
+    
+    #[cfg(not(feature = "high_perf"))]
+    return "💻 USING CPU (NDARRAY)".to_string();
+}
 
-    let _setup = burn_wgpu::init_setup_async::<burn_wgpu::graphics::Metal>(
-        &device,
-        RuntimeOptions::default(),
-    )
-    .await;
+pub async fn init(cache_dir: String) -> String {
+    let config = QwenConfig::default();
+
+    // 1. Initialize Device based on Feature
+    #[cfg(feature = "high_perf")]
+    let device = burn::backend::wgpu::WgpuDevice::DefaultDevice;
+    #[cfg(not(feature = "high_perf"))]
+    let device = burn::backend::ndarray::NdArrayDevice::Cpu;
+
+    // 2. Setup GPU only if High Perf is enabled
+    #[cfg(feature = "high_perf")]
+    {
+        let _setup = burn_wgpu::init_setup_async::<backend_setup::GraphicsApi>(
+            &device,
+            burn_wgpu::RuntimeOptions::default(),
+        ).await;
+    }
 
     let mut model: Qwen<Backend> = config.init(&device);
 
@@ -51,24 +97,48 @@ pub async fn init(cache_dir: String) {
     let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
 
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        return format!("Permission error: {}", e);
+    }
+
     // For debugging, delete the model if it already exists
-    // if model_path.exists() {
-    //     std::fs::remove_file(&model_path).unwrap();
-    // }
+    if model_path.exists() {
+        std::fs::remove_file(&model_path).unwrap();
+    }
 
     if !model_path.exists() {
-        let mut stream = reqwest::get(model_url).await.unwrap().bytes_stream();
-        let mut file = File::create(&model_path).await.unwrap();
-        while let Some(item) = stream.next().await {
-            file.write_all(&item.unwrap()).await.unwrap();
-        }
+        let response = reqwest::get(model_url).await;
+
+        match response {
+            Ok(res) => {
+                let mut stream = res.bytes_stream();
+                let mut file = File::create(&model_path).await.unwrap();
+                while let Some(item) = stream.next().await {
+                    file.write_all(&item.unwrap()).await.unwrap();
+                }
+            }
+            Err(e) => {
+                // Return a string error back to Flutter instead of panicking
+                return format!("Download failed: {}", e);
+            }
+        }        
     }
 
     if !tokenizer_path.exists() {
-        let mut stream = reqwest::get(tokenizer_url).await.unwrap().bytes_stream();
-        let mut file = File::create(&tokenizer_path).await.unwrap();
-        while let Some(item) = stream.next().await {
-            file.write_all(&item.unwrap()).await.unwrap();
+        let response = reqwest::get(tokenizer_url).await;
+
+        match response {
+            Ok(res) => {
+                let mut stream = res.bytes_stream();
+                let mut file = File::create(&tokenizer_path).await.unwrap();
+                while let Some(item) = stream.next().await {
+                    file.write_all(&item.unwrap()).await.unwrap();
+                }
+            }
+            Err(e) => {
+                // Return a string error back to Flutter instead of panicking
+                return format!("Download failed: {}", e);
+            }
         }
     }
 
@@ -92,6 +162,7 @@ pub async fn init(cache_dir: String) {
     GLOBAL_CONFIG.set(config).unwrap();
     GLOBAL_DEVICE.set(device).unwrap();
     SESSIONS.set(DashMap::new()).unwrap();
+    return "Success".to_string();
 }
 
 pub fn init_session() -> String {
@@ -176,11 +247,12 @@ pub fn generate_response(session_id: &str, prompt: &str) -> String {
                 0..config.vocab_size,
             ])
             .reshape([1, config.vocab_size]);
+        // Burn 0.20.1 preferred way to sync GPU data to CPU
         let next_token_id = next_token_logits
             .argmax(1)
-            .into_data()
+            .to_data() // Forces a GPU sync and returns TensorData
             .into_vec::<i32>()
-            .unwrap()[0] as u32;
+            .expect("GPU Sync Failed")[0] as u32;
 
         if next_token_id == im_end_id {
             break;
