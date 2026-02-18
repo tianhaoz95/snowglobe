@@ -1,5 +1,5 @@
-use snowglobe::{self};
 use crate::frb_generated::StreamSink;
+use snowglobe::{self};
 
 pub async fn init_engine(cache_dir: String) -> String {
     snowglobe::init(cache_dir).await
@@ -21,11 +21,7 @@ impl snowglobe::StreamSink<String> for FrbSink {
     }
 }
 
-pub fn generate_response(
-    session_id: String,
-    prompt: String,
-    sink: StreamSink<String>,
-) {
+pub fn generate_response(session_id: String, prompt: String, sink: StreamSink<String>) {
     let _ = snowglobe::generate_response(&session_id, &prompt, FrbSink(sink));
 }
 
