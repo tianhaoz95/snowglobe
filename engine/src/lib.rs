@@ -69,6 +69,51 @@ pub fn check_backend() -> String {
     return "💻 USING CPU (NDARRAY)".to_string();
 }
 
+async fn download_file(url: &str, path: &Path) -> Result<(), String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?;
+    let mut stream = response.bytes_stream();
+    let mut file = File::create(path)
+        .await
+        .map_err(|e| format!("File creation failed: {}", e))?;
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| format!("Stream error: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
+    }
+    Ok(())
+}
+
+pub async fn download_model(cache_dir: String) -> String {
+    let model_url =
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
+    let tokenizer_url =
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
+
+    let model_path = Path::new(&cache_dir).join("model.safetensors");
+    let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
+
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        return format!("Permission error: {}", e);
+    }
+
+    if !model_path.exists() {
+        if let Err(e) = download_file(model_url, &model_path).await {
+            return e;
+        }
+    }
+
+    if !tokenizer_path.exists() {
+        if let Err(e) = download_file(tokenizer_url, &tokenizer_path).await {
+            return e;
+        }
+    }
+
+    "Success".to_string()
+}
+
 pub async fn init(cache_dir: String) -> String {
     let config = QwenConfig::default();
 
@@ -89,57 +134,15 @@ pub async fn init(cache_dir: String) -> String {
 
     let mut model: Qwen<Backend> = config.init(&device);
 
-    let model_url =
-        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
-    let tokenizer_url =
-        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
-
     let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
 
-    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-        return format!("Permission error: {}", e);
-    }
-
-    // For debugging, delete the model if it already exists
-    // if model_path.exists() {
-    //     std::fs::remove_file(&model_path).unwrap();
-    // }
-
     if !model_path.exists() {
-        let response = reqwest::get(model_url).await;
-
-        match response {
-            Ok(res) => {
-                let mut stream = res.bytes_stream();
-                let mut file = File::create(&model_path).await.unwrap();
-                while let Some(item) = stream.next().await {
-                    file.write_all(&item.unwrap()).await.unwrap();
-                }
-            }
-            Err(e) => {
-                // Return a string error back to Flutter instead of panicking
-                return format!("Download failed: {}", e);
-            }
-        }        
+        return "Model file missing. Please call download_model first.".to_string();
     }
 
     if !tokenizer_path.exists() {
-        let response = reqwest::get(tokenizer_url).await;
-
-        match response {
-            Ok(res) => {
-                let mut stream = res.bytes_stream();
-                let mut file = File::create(&tokenizer_path).await.unwrap();
-                while let Some(item) = stream.next().await {
-                    file.write_all(&item.unwrap()).await.unwrap();
-                }
-            }
-            Err(e) => {
-                // Return a string error back to Flutter instead of panicking
-                return format!("Download failed: {}", e);
-            }
-        }
+        return "Tokenizer file missing. Please call download_model first.".to_string();
     }
 
     let file = std::fs::File::open(&model_path).unwrap();
@@ -282,6 +285,7 @@ mod tests {
     async fn test_one_plus_one() {
         let cache_dir = "./tmp/testing";
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
+        download_model(cache_dir.to_string()).await;
         init(cache_dir.to_string()).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
