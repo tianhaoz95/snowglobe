@@ -1,11 +1,11 @@
 use burn::{
     module::Param,
-    tensor::{backend::Backend, Shape, Tensor, TensorData},
+    tensor::{Shape, Tensor, TensorData, backend::Backend},
 };
 use half::{bf16, f16};
 use safetensors::{
-    tensor::{SafeTensors, TensorView},
     Dtype,
+    tensor::{SafeTensors, TensorView},
 };
 use std::collections::HashMap;
 
@@ -24,9 +24,18 @@ fn load_tensor_2d<B: Backend>(
     let data_bytes = tensor_view.data();
 
     let data: TensorData = match tensor_view.dtype() {
-        Dtype::F32 => TensorData::new(bytemuck::cast_slice::<u8, f32>(data_bytes).to_vec(), shape.clone()),
-        Dtype::F16 => TensorData::new(bytemuck::cast_slice::<u8, f16>(data_bytes).to_vec(), shape.clone()),
-        Dtype::BF16 => TensorData::new(bytemuck::cast_slice::<u8, bf16>(data_bytes).to_vec(), shape.clone()),
+        Dtype::F32 => TensorData::new(
+            bytemuck::cast_slice::<u8, f32>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
+        Dtype::F16 => TensorData::new(
+            bytemuck::cast_slice::<u8, f16>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
+        Dtype::BF16 => TensorData::new(
+            bytemuck::cast_slice::<u8, bf16>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
         dtype => panic!("Unsupported dtype {dtype:?}"),
     };
 
@@ -52,9 +61,18 @@ fn load_tensor_1d<B: Backend>(
     let data_bytes = tensor_view.data();
 
     let data: TensorData = match tensor_view.dtype() {
-        Dtype::F32 => TensorData::new(bytemuck::cast_slice::<u8, f32>(data_bytes).to_vec(), shape.clone()),
-        Dtype::F16 => TensorData::new(bytemuck::cast_slice::<u8, f16>(data_bytes).to_vec(), shape.clone()),
-        Dtype::BF16 => TensorData::new(bytemuck::cast_slice::<u8, bf16>(data_bytes).to_vec(), shape.clone()),
+        Dtype::F32 => TensorData::new(
+            bytemuck::cast_slice::<u8, f32>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
+        Dtype::F16 => TensorData::new(
+            bytemuck::cast_slice::<u8, f16>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
+        Dtype::BF16 => TensorData::new(
+            bytemuck::cast_slice::<u8, bf16>(data_bytes).to_vec(),
+            shape.clone(),
+        ),
         dtype => panic!("Unsupported dtype {dtype:?}"),
     };
 
@@ -75,7 +93,8 @@ pub fn load_qwen_record<B: Backend>(
         .map(|(k, v)| (k.clone(), v))
         .collect();
 
-    record.embedding.weight = load_tensor_2d(&mut tensors, "model.embed_tokens.weight", device, false);
+    record.embedding.weight =
+        load_tensor_2d(&mut tensors, "model.embed_tokens.weight", device, false);
 
     for (i, layer) in record.layers.iter_mut().enumerate() {
         let layer_path = format!("model.layers.{}", i);
@@ -163,7 +182,7 @@ pub fn load_qwen_record<B: Backend>(
     if !config.tied_word_embeddings {
         record.linear_output.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, true);
     } else {
-        let embedding_tensor = record.embedding.weight.val(); 
+        let embedding_tensor = record.embedding.weight.val();
         record.linear_output.weight = Param::from_tensor(embedding_tensor.transpose());
     }
 

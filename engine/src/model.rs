@@ -1,10 +1,7 @@
 use burn::{
     module::{Module, Param},
-    nn::{
-        Embedding, EmbeddingConfig, Linear, LinearConfig,
-        RmsNorm, RmsNormConfig,
-    },
-    tensor::{backend::Backend, Int, Tensor},
+    nn::{Embedding, EmbeddingConfig, Linear, LinearConfig, RmsNorm, RmsNormConfig},
+    tensor::{Int, Tensor, backend::Backend},
 }; // Closing brace for the `burn` import block
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +15,7 @@ pub struct QwenConfig {
     pub num_hidden_layers: usize,
     pub num_attention_heads: usize,
     pub num_key_value_heads: usize, // For Grouped Query Attention (GQA)
-    pub intermediate_size: usize, // For the feed-forward layer
+    pub intermediate_size: usize,   // For the feed-forward layer
     pub rope_theta: f64,
     pub max_position_embeddings: usize,
     pub rms_norm_eps: f64,
@@ -45,7 +42,9 @@ impl QwenConfig {
         let qkv_bias = self.qkv_bias;
 
         let embedding = EmbeddingConfig::new(vocab_size, hidden_size).init(device);
-        let rms_norm = RmsNormConfig::new(hidden_size).with_epsilon(rms_norm_eps).init(device);
+        let rms_norm = RmsNormConfig::new(hidden_size)
+            .with_epsilon(rms_norm_eps)
+            .init(device);
 
         let layers = (0..num_hidden_layers)
             .map(|_| {
@@ -93,7 +92,7 @@ impl Default for QwenConfig {
             rope_theta: 1000000.0,
             max_position_embeddings: 32768,
             rms_norm_eps: 1e-6,
-            use_cache: true,      // Typically true for inference
+            use_cache: true,            // Typically true for inference
             tied_word_embeddings: true, // Check Qwen config for this
             qkv_bias: true,
             hidden_act: "silu".to_string(),
@@ -123,7 +122,7 @@ impl<B: Backend> Qwen<B> {
 
         let logits = self.linear_output.forward(x);
 
-        // STABILIZER: If running on mobile Metal, 
+        // STABILIZER: If running on mobile Metal,
         // high logit values cause argmax to pick garbage tokens.
         // Dividing by a constant keeps them in the safe f16 range (< 65504)
         // without changing the result of the argmax.
@@ -179,7 +178,9 @@ impl QwenBlockConfig {
         let dropout = self.dropout;
         let qkv_bias = self.qkv_bias;
 
-        let self_attn_norm = RmsNormConfig::new(hidden_size).with_epsilon(rms_norm_eps).init(device);
+        let self_attn_norm = RmsNormConfig::new(hidden_size)
+            .with_epsilon(rms_norm_eps)
+            .init(device);
         let self_attn = QwenAttentionConfig::new(
             hidden_size,
             num_attention_heads,
@@ -191,7 +192,9 @@ impl QwenBlockConfig {
         )
         .init(device);
 
-        let mlp_norm = RmsNormConfig::new(hidden_size).with_epsilon(rms_norm_eps).init(device);
+        let mlp_norm = RmsNormConfig::new(hidden_size)
+            .with_epsilon(rms_norm_eps)
+            .init(device);
         let mlp = QwenMLPConfig::new(hidden_size, intermediate_size, dropout).init(device);
 
         QwenBlock {
@@ -215,13 +218,18 @@ pub struct QwenBlock<B: Backend> {
 impl<B: Backend> QwenBlock<B> {
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
         let hidden_states = self.self_attn_norm.forward(input.clone());
-        let self_attn_output = self
-            .self_attn
-            .forward(hidden_states.clone(), hidden_states.clone(), hidden_states, None);
+        let self_attn_output = self.self_attn.forward(
+            hidden_states.clone(),
+            hidden_states.clone(),
+            hidden_states,
+            None,
+        );
 
         let hidden_states = input + self_attn_output;
 
-        let mlp_output = self.mlp.forward(self.mlp_norm.forward(hidden_states.clone()));
+        let mlp_output = self
+            .mlp
+            .forward(self.mlp_norm.forward(hidden_states.clone()));
         hidden_states + mlp_output
     }
 }
@@ -326,32 +334,17 @@ impl<B: Backend> QwenAttention<B> {
         let [batch_size, seq_len, _hidden_size] = query.dims();
 
         let q = self.q_proj.forward(query); // [batch_size, seq_len, num_attention_heads * head_dim]
-        let k = self.k_proj.forward(key);   // [batch_size, seq_len, num_key_value_heads * head_dim]
+        let k = self.k_proj.forward(key); // [batch_size, seq_len, num_key_value_heads * head_dim]
         let v = self.v_proj.forward(value); // [batch_size, seq_len, num_key_value_heads * head_dim]
 
         let q_reshaped = q
-            .reshape([
-                batch_size,
-                seq_len,
-                self.num_attention_heads,
-                self.head_dim,
-            ])
+            .reshape([batch_size, seq_len, self.num_attention_heads, self.head_dim])
             .swap_dims(1, 2); // [batch_size, num_attention_heads, seq_len, head_dim]
         let k_reshaped = k
-            .reshape([
-                batch_size,
-                seq_len,
-                self.num_key_value_heads,
-                self.head_dim,
-            ])
+            .reshape([batch_size, seq_len, self.num_key_value_heads, self.head_dim])
             .swap_dims(1, 2); // [batch_size, num_key_value_heads, seq_len, head_dim]
         let v_reshaped = v
-            .reshape([
-                batch_size,
-                seq_len,
-                self.num_key_value_heads,
-                self.head_dim,
-            ])
+            .reshape([batch_size, seq_len, self.num_key_value_heads, self.head_dim])
             .swap_dims(1, 2); // [batch_size, num_key_value_heads, seq_len, head_dim]
 
         // Apply RoPE
@@ -368,7 +361,14 @@ impl<B: Backend> QwenAttention<B> {
             // Repeat the K heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
             // k_rotated.repeat(&[1, num_reps, 1, 1])
-            k_rotated.reshape([batch_size, self.num_key_value_heads, 1, seq_len, self.head_dim])
+            k_rotated
+                .reshape([
+                    batch_size,
+                    self.num_key_value_heads,
+                    1,
+                    seq_len,
+                    self.head_dim,
+                ])
                 .repeat(&[1, 1, num_reps, 1, 1])
                 .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
         } else {
@@ -377,7 +377,14 @@ impl<B: Backend> QwenAttention<B> {
         let v_gqa = if self.num_key_value_heads < self.num_attention_heads {
             // Repeat the V heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
-            v_reshaped.reshape([batch_size, self.num_key_value_heads, 1, seq_len, self.head_dim])
+            v_reshaped
+                .reshape([
+                    batch_size,
+                    self.num_key_value_heads,
+                    1,
+                    seq_len,
+                    self.head_dim,
+                ])
                 .repeat(&[1, 1, num_reps, 1, 1])
                 .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
         } else {
@@ -396,16 +403,13 @@ impl<B: Backend> QwenAttention<B> {
             .reshape([1, 1, seq_len_q, seq_len_k]);
         scores = scores.mask_fill(causal_mask.equal_elem(false), f64::NEG_INFINITY);
 
-
         // Apply mask (if provided)
         // if let Some(mask) = _mask {
         //     scores = scores.mask_fill(mask, f64::NEG_INFINITY);
         // }
 
-        let attn_weights = burn::tensor::activation::softmax(
-            scores.clone(), 
-            scores.dims().len() - 1
-        );
+        let attn_weights =
+            burn::tensor::activation::softmax(scores.clone(), scores.dims().len() - 1);
         let attn_output = attn_weights.matmul(v_gqa); // [batch_size, num_attention_heads, seq_len, head_dim]
 
         let attn_output = attn_output.swap_dims(1, 2).reshape([
@@ -437,7 +441,7 @@ impl QwenMLPConfig {
 
     pub fn init<B: Backend>(&self, device: &B::Device) -> QwenMLP<B> {
         let gate_proj = LinearConfig::new(self.hidden_size, self.intermediate_size)
-            .with_bias(false) 
+            .with_bias(false)
             .init(device);
         let up_proj = LinearConfig::new(self.hidden_size, self.intermediate_size)
             .with_bias(false)

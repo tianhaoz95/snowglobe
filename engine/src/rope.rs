@@ -1,9 +1,9 @@
-use burn_tensor::{backend::Backend, Shape, Tensor, TensorData, Int};
+use burn_tensor::{Int, Shape, Tensor, TensorData, backend::Backend};
 
 /// Applies rotary positional embeddings to query and key tensors.
 pub fn apply_rotary_pos_emb<B: Backend>(
-    query: Tensor<B, 4>, 
-    key: Tensor<B, 4>,   
+    query: Tensor<B, 4>,
+    key: Tensor<B, 4>,
     sin_cached: &Tensor<B, 4>,
     cos_cached: &Tensor<B, 4>,
     seq_len: usize,
@@ -15,8 +15,15 @@ pub fn apply_rotary_pos_emb<B: Backend>(
         let dims = x.dims();
         let [batch_size, num_heads, seq_len, head_dim] = dims;
 
-        let x1 = x.clone().slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim / 2]);
-        let x2 = x.slice([0..batch_size, 0..num_heads, 0..seq_len, head_dim / 2..head_dim]);
+        let x1 = x
+            .clone()
+            .slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim / 2]);
+        let x2 = x.slice([
+            0..batch_size,
+            0..num_heads,
+            0..seq_len,
+            head_dim / 2..head_dim,
+        ]);
         Tensor::cat(vec![x2.neg(), x1], 3)
     };
 
@@ -24,8 +31,12 @@ pub fn apply_rotary_pos_emb<B: Backend>(
     let k_rotated = rotate_half(key.clone());
 
     // 2. Slice cache to current sequence length
-    let cos = cos_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
-    let sin = sin_cached.clone().slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
+    let cos = cos_cached
+        .clone()
+        .slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
+    let sin = sin_cached
+        .clone()
+        .slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
 
     // 3. Standard RoPE formula: (x * cos) + (rotate_half(x) * sin)
     let q_out = query.mul(cos.clone()).add(q_rotated.mul(sin.clone()));
@@ -51,10 +62,8 @@ pub fn create_sin_cos_cache<B: Backend>(
         .collect();
 
     // Convert to tensor [1, half_dim]
-    let inv_freq_tensor = Tensor::<B, 2>::from_data(
-        TensorData::new(inv_freq, Shape::new([1, half_dim])), 
-        device
-    );
+    let inv_freq_tensor =
+        Tensor::<B, 2>::from_data(TensorData::new(inv_freq, Shape::new([1, half_dim])), device);
 
     // 2. Create the position indices [max_seq, 1]
     let t = Tensor::<B, 1, Int>::arange(0..max_position_embeddings as i64, device)
@@ -65,12 +74,15 @@ pub fn create_sin_cos_cache<B: Backend>(
     let freqs = t.matmul(inv_freq_tensor);
 
     // 4. Concatenate frequencies with themselves [max_seq, head_dim]
-    // This allows the first half and second half of the hidden states 
+    // This allows the first half and second half of the hidden states
     // to be multiplied by the same sin/cos values.
     let emb = Tensor::cat(vec![freqs.clone(), freqs], 1);
 
     // 5. Reshape to [1, 1, max_seq, head_dim] for broadcasting during attention
-    let cos = emb.clone().cos().reshape([1, 1, max_position_embeddings, head_dim]);
+    let cos = emb
+        .clone()
+        .cos()
+        .reshape([1, 1, max_position_embeddings, head_dim]);
     let sin = emb.sin().reshape([1, 1, max_position_embeddings, head_dim]);
 
     (sin, cos)
