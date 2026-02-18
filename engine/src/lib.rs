@@ -158,6 +158,7 @@ pub async fn init(cache_dir: String) -> String {
     // go out of scope here to free up that ~1-2GB of RAM.
     drop(safetensors);
     drop(mmap);
+    drop(file);
 
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
