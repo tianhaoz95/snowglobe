@@ -102,9 +102,9 @@ pub async fn init(cache_dir: String) -> String {
     }
 
     // For debugging, delete the model if it already exists
-    if model_path.exists() {
-        std::fs::remove_file(&model_path).unwrap();
-    }
+    // if model_path.exists() {
+    //     std::fs::remove_file(&model_path).unwrap();
+    // }
 
     if !model_path.exists() {
         let response = reqwest::get(model_url).await;

@@ -41,10 +41,88 @@ class _MyAppState extends State<MyApp> {
       await cacheDir.create(recursive: true);
     }
     print('Cache directory: ${cacheDir.path}');
+
+    // Download model and tokenizer before initializing engine
+    await _downloadModelAndTokenizer(cacheDir.path);
+
     final initResult = await initEngine(cacheDir: cacheDir.path);
     print('Engine initialized: $initResult');
     _sessionId = await initSession(); // Store the session ID
     print('Session ID: $_sessionId');
+  }
+
+  Future<void> _downloadModelAndTokenizer(String cacheDir) async {
+    const modelUrl =
+        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors';
+    const tokenizerUrl =
+        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json';
+
+    final modelPath = '$cacheDir/model.safetensors';
+    final tokenizerPath = '$cacheDir/tokenizer.json';
+
+    setState(() {
+      _response = 'Downloading model and tokenizer...';
+      _isLoading = true;
+    });
+
+    try {
+      // Replicate engine logic: tokenizer only if it doesn't exist
+      if (!await File(tokenizerPath).exists()) {
+        print('Downloading tokenizer...');
+        await _downloadFile(tokenizerUrl, tokenizerPath, 'tokenizer');
+      }
+
+      // Replicate engine logic: engine currently deletes and re-downloads model
+      // so we do the same to ensure it's there for the engine to (potentially)
+      // replace or use. Note: engine's debug behavior will still delete it.
+      if (!await File(modelPath).exists()) {
+        print('Downloading model...');
+        await _downloadFile(modelUrl, modelPath, 'model');
+      }
+    } catch (e) {
+      print('Download error: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+        _response = 'Downloads complete. Initializing engine...';
+      });
+    }
+  }
+
+  Future<void> _downloadFile(String url, String savePath, String label) async {
+    final httpClient = HttpClient();
+    try {
+      final request = await httpClient.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final contentLength = response.contentLength;
+        int downloaded = 0;
+        final file = File(savePath);
+        final sink = file.openWrite();
+        
+        await for (var chunk in response) {
+          downloaded += chunk.length;
+          sink.add(chunk);
+          
+          if (contentLength > 0) {
+            final progress = (downloaded / contentLength * 100).toStringAsFixed(1);
+            setState(() {
+              _response = 'Downloading $label: $progress%';
+            });
+          } else {
+            setState(() {
+              _response = 'Downloading $label: ${downloaded ~/ 1024} KB';
+            });
+          }
+        }
+        await sink.close();
+        print('Downloaded: $savePath');
+      } else {
+        print('Failed to download $url: ${response.statusCode}');
+      }
+    } finally {
+      httpClient.close();
+    }
   }
 
   Future<void> _generateResponse() async {
