@@ -1,11 +1,13 @@
 use burn::{
-    module::{Module, Param},
-    nn::{Embedding, EmbeddingConfig, Linear, LinearConfig, RmsNorm, RmsNormConfig},
+    module::Module,
+    nn::{Linear, LinearConfig, RmsNorm, RmsNormConfig},
     tensor::{Int, Tensor, backend::Backend},
-}; // Closing brace for the `burn` import block
+};
+ // Closing brace for the `burn` import block
 use serde::{Deserialize, Serialize};
 
 use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
+use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear};
 
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
@@ -41,7 +43,8 @@ impl QwenConfig {
         let dropout = self.dropout;
         let qkv_bias = self.qkv_bias;
 
-        let embedding = EmbeddingConfig::new(vocab_size, hidden_size).init(device);
+        let embedding = LargeVocabEmbedding::init(vocab_size, hidden_size, device);
+
         let rms_norm = RmsNormConfig::new(hidden_size)
             .with_epsilon(rms_norm_eps)
             .init(device);
@@ -63,12 +66,9 @@ impl QwenConfig {
             .collect();
 
         let linear_output = if self.tied_word_embeddings {
-            Linear {
-                weight: Param::from_tensor(embedding.weight.clone().val().transpose()),
-                bias: None,
-            }
+            LargeVocabLinear::from_embedding(&embedding)
         } else {
-            LinearConfig::new(hidden_size, vocab_size).init(device)
+            LargeVocabLinear::init(hidden_size, vocab_size, device)
         };
 
         Qwen {
@@ -104,10 +104,10 @@ impl Default for QwenConfig {
 /// The Qwen model.
 #[derive(Debug, Module)]
 pub struct Qwen<B: Backend> {
-    pub embedding: Embedding<B>,
+    pub embedding: LargeVocabEmbedding<B>,
     pub layers: Vec<QwenBlock<B>>,
     pub rms_norm: RmsNorm<B>,
-    pub linear_output: Linear<B>,
+    pub linear_output: LargeVocabLinear<B>,
 }
 
 impl<B: Backend> Qwen<B> {
@@ -122,17 +122,11 @@ impl<B: Backend> Qwen<B> {
 
         let logits = self.linear_output.forward(x);
 
-        // STABILIZER: If running on mobile Metal,
-        // high logit values cause argmax to pick garbage tokens.
-        // Dividing by a constant keeps them in the safe f16 range (< 65504)
-        // without changing the result of the argmax.
-        // logits = logits / 16.0;
-
         logits
     }
 }
 
-/// Configuration for a single Qwen block (transformer layer).
+// Configuration for a single Qwen block (transformer layer).
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
 pub struct QwenBlockConfig {
     pub hidden_size: usize,

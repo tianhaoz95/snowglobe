@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 pub mod model;
+pub mod layer;
 pub mod rope;
 pub mod weight;
 

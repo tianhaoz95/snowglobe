@@ -9,6 +9,7 @@ use safetensors::{
 };
 use std::collections::HashMap;
 
+use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear};
 use crate::model::{QwenConfig, QwenRecord};
 
 fn load_tensor_2d<B: Backend>(
@@ -93,8 +94,17 @@ pub fn load_qwen_record<B: Backend>(
         .map(|(k, v)| (k.clone(), v))
         .collect();
 
-    record.embedding.weight =
-        load_tensor_2d(&mut tensors, "model.embed_tokens.weight", device, false);
+    let embed_view = tensors
+        .remove("model.embed_tokens.weight")
+        .expect("Missing embed_tokens.weight");
+
+    LargeVocabEmbedding::load_weights(
+        &mut record.embedding,
+        &embed_view,
+        config.hidden_size,
+        config.vocab_size,
+        device,
+    );
 
     for (i, layer) in record.layers.iter_mut().enumerate() {
         let layer_path = format!("model.layers.{}", i);
@@ -180,10 +190,19 @@ pub fn load_qwen_record<B: Backend>(
     }
 
     if !config.tied_word_embeddings {
-        record.linear_output.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, true);
+        let head_view = tensors
+            .remove("lm_head.weight")
+            .expect("Missing lm_head.weight");
+        LargeVocabLinear::load_weights(
+            &mut record.linear_output,
+            &head_view,
+            config.hidden_size,
+            config.vocab_size,
+            device,
+            true,
+        );
     } else {
-        let embedding_tensor = record.embedding.weight.val();
-        record.linear_output.weight = Param::from_tensor(embedding_tensor.transpose());
+        LargeVocabLinear::tie_weights(&mut record.linear_output, &record.embedding);
     }
 
     record.rms_norm.gamma = load_tensor_1d(&mut tensors, "model.norm.weight", device);

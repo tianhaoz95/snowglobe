@@ -8,7 +8,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
-snowglobe = { version = "0.1.0", path = "../../engine" }
+snowglobe = { version = "0.1.0", path = "../../engine", features = ["high_perf"] }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 
 [lints.rust]
