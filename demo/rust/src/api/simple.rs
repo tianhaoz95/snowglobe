@@ -1,5 +1,5 @@
 use snowglobe::{self};
-use flutter_rust_bridge::DartFnFuture;
+use crate::frb_generated::StreamSink;
 
 pub async fn init_engine(cache_dir: String) -> String {
     snowglobe::init(cache_dir).await
@@ -13,8 +13,20 @@ pub fn init_session() -> String {
     snowglobe::init_session()
 }
 
-pub fn generate_response(session_id: &str, prompt: &str) -> String {
-    snowglobe::generate_response(session_id, prompt)
+struct FrbSink(StreamSink<String>);
+
+impl snowglobe::StreamSink<String> for FrbSink {
+    fn add(&self, value: String) -> bool {
+        self.0.add(value).is_ok()
+    }
+}
+
+pub fn generate_response(
+    session_id: String,
+    prompt: String,
+    sink: StreamSink<String>,
+) {
+    let _ = snowglobe::generate_response(&session_id, &prompt, FrbSink(sink));
 }
 
 #[flutter_rust_bridge::frb(init)]

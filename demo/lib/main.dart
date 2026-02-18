@@ -130,17 +130,26 @@ class _MyAppState extends State<MyApp> {
 
     setState(() {
       _isLoading = true;
-      _response = 'Generating response...';
+      _response = ''; // Clear previous response
     });
 
     try {
       final String currentPrompt = _promptController.text;
       final stopwatch = Stopwatch()..start(); // Start stopwatch
-      final response = await generateResponse(sessionId: _sessionId!, prompt: currentPrompt);
+      
+      final tokenStream = generateResponse(
+        sessionId: _sessionId!,
+        prompt: currentPrompt,
+      );
+
+      await for (final token in tokenStream) {
+        setState(() {
+          _response += token;
+        });
+      }
+
       stopwatch.stop(); // Stop stopwatch
-      setState(() {
-        _response = 'Generated in ${stopwatch.elapsed.inMilliseconds / 1000.0} seconds\n$response';
-      });
+      print('Generation finished in ${stopwatch.elapsed.inMilliseconds / 1000.0} seconds');
     } catch (e) {
       setState(() {
         _response = 'Error: $e';

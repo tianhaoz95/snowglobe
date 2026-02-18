@@ -10,6 +10,7 @@ use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
 use dashmap::DashMap;
 use futures_util::StreamExt;
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use safetensors::SafeTensors;
 use std::path::Path;
@@ -17,7 +18,6 @@ use tokenizers::Tokenizer;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
-use once_cell::sync::OnceCell;
 
 #[cfg(feature = "high_perf")]
 pub mod backend_setup {
@@ -28,7 +28,7 @@ pub mod backend_setup {
     // GPU Types: Wgpu takes <Float, Int>
     pub type Backend = Wgpu<f32, i32>;
     pub type Device = WgpuDevice;
-    
+
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     pub type GraphicsApi = burn_wgpu::graphics::Metal;
     #[cfg(target_os = "android")]
@@ -44,7 +44,7 @@ pub mod backend_setup {
     use burn::backend::NdArray;
     use burn::backend::ndarray::NdArrayDevice;
     use once_cell::sync::OnceCell;
-    
+
     // CPU Types: NdArray in 0.20.1 usually only takes <Float>
     pub type Backend = NdArray<f32, i32>;
     pub type Device = NdArrayDevice;
@@ -64,7 +64,7 @@ static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
 pub fn check_backend() -> String {
     #[cfg(feature = "high_perf")]
     return "🚀 USING GPU (WGPU/VULKAN)".to_string();
-    
+
     #[cfg(not(feature = "high_perf"))]
     return "💻 USING CPU (NDARRAY)".to_string();
 }
@@ -129,7 +129,8 @@ pub async fn init(cache_dir: String) -> String {
         let _setup = burn_wgpu::init_setup_async::<backend_setup::GraphicsApi>(
             &device,
             burn_wgpu::RuntimeOptions::default(),
-        ).await;
+        )
+        .await;
     }
 
     let mut model: Qwen<Backend> = config.init(&device);
@@ -202,7 +203,20 @@ pub fn generate(name: String) -> String {
     format!("Hello, {name} :)")
 }
 
-pub fn generate_response(session_id: &str, prompt: &str) -> String {
+pub trait StreamSink<T> {
+    fn add(&self, value: T) -> bool;
+}
+
+impl<T, S: StreamSink<T>> StreamSink<T> for &S {
+    fn add(&self, value: T) -> bool {
+        (*self).add(value)
+    }
+}
+
+pub fn generate_response<S>(session_id: &str, prompt: &str, sink: S) -> Result<(), String>
+where
+    S: StreamSink<String>,
+{
     let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
     let config = GLOBAL_CONFIG.get().unwrap();
     let device = GLOBAL_DEVICE.get().unwrap();
@@ -230,9 +244,8 @@ pub fn generate_response(session_id: &str, prompt: &str) -> String {
     token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
     token_ids.push(newline_id);
 
-    let mut assistant_response_ids = Vec::new();
-    for _ in 0..8 {
-        // Generate up to 1024 tokens
+    for _ in 0..256 {
+        // Generate up to 256 tokens
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(
                 token_ids.clone().into_iter().map(|x| x as i32).collect(),
@@ -262,12 +275,18 @@ pub fn generate_response(session_id: &str, prompt: &str) -> String {
         }
 
         token_ids.push(next_token_id);
-        assistant_response_ids.push(next_token_id);
+
+        let new_text = tokenizer.decode(&[next_token_id], true).unwrap_or_default();
+        if !new_text.is_empty() {
+            if !sink.add(new_text) {
+                break;
+            }
+        }
     }
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
 
-    tokenizer.decode(&assistant_response_ids, true).unwrap()
+    Ok(())
 }
 
 #[cfg(test)]
@@ -281,6 +300,14 @@ mod tests {
         assert_eq!(result, "Hello, snowglobe :)");
     }
 
+    struct TestSink(Mutex<String>);
+    impl StreamSink<String> for TestSink {
+        fn add(&self, value: String) -> bool {
+            self.0.lock().push_str(&value);
+            true
+        }
+    }
+
     #[tokio::test]
     async fn test_one_plus_one() {
         let cache_dir = "./tmp/testing";
@@ -289,8 +316,12 @@ mod tests {
         init(cache_dir.to_string()).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
-        let response = generate_response(&session_id, prompt);
 
+        let sink = TestSink(Mutex::new(String::new()));
+        let result = generate_response(&session_id, prompt, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
         println!("Prompt: {}", prompt);
         println!("Response: {}", response);
 
