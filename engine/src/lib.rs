@@ -115,8 +115,9 @@ pub async fn download_model(cache_dir: String) -> String {
     "Success".to_string()
 }
 
-pub async fn init(cache_dir: String) -> String {
-    let config = QwenConfig::default();
+pub async fn init(cache_dir: String, shard_vocab: bool) -> String {
+    let mut config = QwenConfig::default();
+    config.shard_vocab = shard_vocab;
 
     // 1. Initialize Device based on Feature
     #[cfg(feature = "high_perf")]
@@ -315,7 +316,27 @@ mod tests {
         let cache_dir = "./tmp/testing";
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
         download_model(cache_dir.to_string()).await;
-        init(cache_dir.to_string()).await;
+        init(cache_dir.to_string(), false).await;
+        let session_id = init_session();
+        let prompt = "what is 1+1? only answer with numbers";
+
+        let sink = TestSink(Mutex::new(String::new()));
+        let result = generate_response(&session_id, prompt, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert_eq!(response.trim(), "2");
+    }
+
+    #[tokio::test]
+    async fn test_sharded_one_plus_one() {
+        let cache_dir = "./tmp/testing_sharded";
+        tokio::fs::create_dir_all(cache_dir).await.unwrap();
+        download_model(cache_dir.to_string()).await;
+        init(cache_dir.to_string(), true).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 

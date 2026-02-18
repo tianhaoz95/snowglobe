@@ -9,6 +9,36 @@ use half::{f16, bf16};
 
 pub const CHUNK_SIZE: usize = 32000;
 
+#[derive(Debug, Module)]
+pub enum VocabEmbedding<B: Backend> {
+    Normal(Embedding<B>),
+    Sharded(LargeVocabEmbedding<B>),
+}
+
+impl<B: Backend> VocabEmbedding<B> {
+    pub fn forward(&self, input: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+        match self {
+            Self::Normal(e) => e.forward(input),
+            Self::Sharded(e) => e.forward(input),
+        }
+    }
+}
+
+#[derive(Debug, Module)]
+pub enum VocabLinear<B: Backend> {
+    Normal(Linear<B>),
+    Sharded(LargeVocabLinear<B>),
+}
+
+impl<B: Backend> VocabLinear<B> {
+    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+        match self {
+            Self::Normal(e) => e.forward(input),
+            Self::Sharded(e) => e.forward(input),
+        }
+    }
+}
+
 fn load_tensor_2d_range<B: Backend>(
     tensor_view: &TensorView,
     range: std::ops::Range<usize>,

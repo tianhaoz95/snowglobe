@@ -9,7 +9,9 @@ use safetensors::{
 };
 use std::collections::HashMap;
 
-use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear};
+use crate::layer::large_vocab::{
+    LargeVocabEmbedding, LargeVocabLinear, VocabEmbeddingRecord, VocabLinearRecord,
+};
 use crate::model::{QwenConfig, QwenRecord};
 
 fn load_tensor_2d<B: Backend>(
@@ -94,17 +96,15 @@ pub fn load_qwen_record<B: Backend>(
         .map(|(k, v)| (k.clone(), v))
         .collect();
 
-    let embed_view = tensors
-        .remove("model.embed_tokens.weight")
-        .expect("Missing embed_tokens.weight");
-
-    LargeVocabEmbedding::load_weights(
-        &mut record.embedding,
-        &embed_view,
-        config.hidden_size,
-        config.vocab_size,
-        device,
-    );
+    match &mut record.embedding {
+        VocabEmbeddingRecord::Sharded(r) => {
+            let view = tensors.remove("model.embed_tokens.weight").unwrap();
+            LargeVocabEmbedding::load_weights(r, &view, config.hidden_size, config.vocab_size, device);
+        }
+        VocabEmbeddingRecord::Normal(r) => {
+            r.weight = load_tensor_2d(&mut tensors, "model.embed_tokens.weight", device, false);
+        }
+    }
 
     for (i, layer) in record.layers.iter_mut().enumerate() {
         let layer_path = format!("model.layers.{}", i);
@@ -190,19 +190,25 @@ pub fn load_qwen_record<B: Backend>(
     }
 
     if !config.tied_word_embeddings {
-        let head_view = tensors
-            .remove("lm_head.weight")
-            .expect("Missing lm_head.weight");
-        LargeVocabLinear::load_weights(
-            &mut record.linear_output,
-            &head_view,
-            config.hidden_size,
-            config.vocab_size,
-            device,
-            true,
-        );
+        match &mut record.linear_output {
+            VocabLinearRecord::Sharded(r) => {
+                let view = tensors.remove("lm_head.weight").unwrap();
+                LargeVocabLinear::load_weights(r, &view, config.hidden_size, config.vocab_size, device, true);
+            }
+            VocabLinearRecord::Normal(r) => {
+                r.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, true);
+            }
+        }
     } else {
-        LargeVocabLinear::tie_weights(&mut record.linear_output, &record.embedding);
+        match (&mut record.linear_output, &record.embedding) {
+            (VocabLinearRecord::Sharded(r), VocabEmbeddingRecord::Sharded(e)) => {
+                LargeVocabLinear::tie_weights(r, e);
+            }
+            (VocabLinearRecord::Normal(r), VocabEmbeddingRecord::Normal(e)) => {
+                r.weight = Param::from_tensor(e.weight.val().transpose());
+            }
+            _ => panic!("Record variant mismatch for tied weights"),
+        }
     }
 
     record.rms_norm.gamma = load_tensor_1d(&mut tensors, "model.norm.weight", device);

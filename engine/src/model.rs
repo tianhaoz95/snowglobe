@@ -1,13 +1,13 @@
 use burn::{
-    module::Module,
-    nn::{Linear, LinearConfig, RmsNorm, RmsNormConfig},
+    module::{Module, Param},
+    nn::{EmbeddingConfig, Linear, LinearConfig, RmsNorm, RmsNormConfig},
     tensor::{Int, Tensor, backend::Backend},
 };
  // Closing brace for the `burn` import block
 use serde::{Deserialize, Serialize};
 
 use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
-use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear};
+use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear, VocabEmbedding, VocabLinear};
 
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
@@ -28,6 +28,7 @@ pub struct QwenConfig {
 
     // General transformer settings
     pub dropout: f32,
+    pub shard_vocab: bool,
 }
 
 impl QwenConfig {
@@ -43,7 +44,11 @@ impl QwenConfig {
         let dropout = self.dropout;
         let qkv_bias = self.qkv_bias;
 
-        let embedding = LargeVocabEmbedding::init(vocab_size, hidden_size, device);
+        let embedding = if self.shard_vocab {
+            VocabEmbedding::Sharded(LargeVocabEmbedding::init(vocab_size, hidden_size, device))
+        } else {
+            VocabEmbedding::Normal(EmbeddingConfig::new(vocab_size, hidden_size).init(device))
+        };
 
         let rms_norm = RmsNormConfig::new(hidden_size)
             .with_epsilon(rms_norm_eps)
@@ -66,9 +71,19 @@ impl QwenConfig {
             .collect();
 
         let linear_output = if self.tied_word_embeddings {
-            LargeVocabLinear::from_embedding(&embedding)
+            match &embedding {
+                VocabEmbedding::Sharded(e) => {
+                    VocabLinear::Sharded(LargeVocabLinear::from_embedding(e))
+                }
+                VocabEmbedding::Normal(e) => VocabLinear::Normal(Linear {
+                    weight: Param::from_tensor(e.weight.clone().val().transpose()),
+                    bias: None,
+                }),
+            }
+        } else if self.shard_vocab {
+            VocabLinear::Sharded(LargeVocabLinear::init(hidden_size, vocab_size, device))
         } else {
-            LargeVocabLinear::init(hidden_size, vocab_size, device)
+            VocabLinear::Normal(LinearConfig::new(hidden_size, vocab_size).init(device))
         };
 
         Qwen {
@@ -97,6 +112,7 @@ impl Default for QwenConfig {
             qkv_bias: true,
             hidden_act: "silu".to_string(),
             dropout: 0.0,
+            shard_vocab: false,
         }
     }
 }
@@ -104,10 +120,10 @@ impl Default for QwenConfig {
 /// The Qwen model.
 #[derive(Debug, Module)]
 pub struct Qwen<B: Backend> {
-    pub embedding: LargeVocabEmbedding<B>,
+    pub embedding: VocabEmbedding<B>,
     pub layers: Vec<QwenBlock<B>>,
     pub rms_norm: RmsNorm<B>,
-    pub linear_output: LargeVocabLinear<B>,
+    pub linear_output: VocabLinear<B>,
 }
 
 impl<B: Backend> Qwen<B> {
