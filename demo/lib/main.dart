@@ -5,6 +5,8 @@ import 'package:snowglobedemo/src/rust/api/simple.dart';
 import 'package:snowglobedemo/src/rust/frb_generated.dart';
 import 'dart:io';
 
+const bool USE_QWEN3 = false;
+
 void main() {
   runApp(const MyApp());
 }
@@ -58,14 +60,97 @@ class _MyAppState extends State<MyApp> {
     _sessionId = await initSession();
   }
 
+  Future<void> _deleteModelAssets() async {
+    final cacheDir = await getApplicationSupportDirectory();
+    final files = [
+      File('${cacheDir.path}/model.safetensors'),
+      File('${cacheDir.path}/tokenizer.json'),
+      File('${cacheDir.path}/config.json'),
+    ];
+
+    setState(() {
+      _isLoading = true;
+      _response = 'Deleting model assets...';
+    });
+
+    try {
+      for (var file in files) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      _sessionId = null;
+      setState(() {
+        _response = 'Model assets deleted. System not ready.';
+      });
+    } catch (e) {
+      setState(() {
+        _response = 'Error deleting assets: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _redownloadModelAssets() async {
+    final cacheDir = await getApplicationSupportDirectory();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _downloadModelAndTokenizer(cacheDir.path);
+
+      setState(() {
+        _response = 'Re-initializing engine...';
+      });
+
+      final initResult = await initEngine(
+        cacheDir: cacheDir.path,
+        config: const InitConfig(vocabShards: 8, maxGenLen: 64),
+      );
+      print('Engine re-initialized: $initResult');
+      _sessionId = await initSession();
+
+      setState(() {
+        _response = 'Model redownloaded and engine ready.';
+      });
+    } catch (e) {
+      setState(() {
+        _response = 'Error during redownload: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   Future<void> _downloadModelAndTokenizer(String cacheDir) async {
-    const modelUrl =
+    const qwen2_5ModelUrl =
         'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors';
-    const tokenizerUrl =
+    const qwen2_5TokenizerUrl =
         'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json';
+    const qwen2_5ConfigUrl =
+        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json';
+
+    const qwen3ModelUrl =
+        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/model.safetensors';
+    const qwen3TokenizerUrl =
+        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/tokenizer.json';
+    const qwen3ConfigUrl =
+        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/config.json';
+
+    final modelUrl = USE_QWEN3 ? qwen3ModelUrl : qwen2_5ModelUrl;
+    final tokenizerUrl = USE_QWEN3 ? qwen3TokenizerUrl : qwen2_5TokenizerUrl;
+    final configUrl = USE_QWEN3 ? qwen3ConfigUrl : qwen2_5ConfigUrl;
 
     final modelPath = '$cacheDir/model.safetensors';
     final tokenizerPath = '$cacheDir/tokenizer.json';
+    final configPath = '$cacheDir/config.json';
 
     setState(() {
       _response = 'Preparing model assets...';
@@ -73,6 +158,9 @@ class _MyAppState extends State<MyApp> {
     });
 
     try {
+      if (!await File(configPath).exists()) {
+        await _downloadFile(configUrl, configPath, 'Config');
+      }
       if (!await File(tokenizerPath).exists()) {
         await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
       }
@@ -191,6 +279,16 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
           actions: [
+            IconButton(
+              onPressed: _isLoading ? null : _deleteModelAssets,
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete Model',
+            ),
+            IconButton(
+              onPressed: _isLoading ? null : _redownloadModelAssets,
+              icon: const Icon(Icons.download),
+              tooltip: 'Redownload Model',
+            ),
             IconButton(
               onPressed: () => _promptController.clear(),
               icon: const Icon(Icons.refresh),
@@ -314,7 +412,7 @@ class _MyAppState extends State<MyApp> {
 
                 // Footer
                 Text(
-                  'Powered by Qwen 2.5 & Rust Core',
+                  'Powered by ${USE_QWEN3 ? "Qwen 3" : "Qwen 2.5"} & Rust Core',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 11,
