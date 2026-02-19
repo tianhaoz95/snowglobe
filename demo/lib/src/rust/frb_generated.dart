@@ -86,7 +86,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSimpleInitApp();
 
-  Future<String> crateApiSimpleInitEngine({required String cacheDir});
+  Future<String> crateApiSimpleInitEngine({
+    required String cacheDir,
+    required int vocabShards,
+  });
 
   Future<String> crateApiSimpleInitSession();
 }
@@ -194,12 +197,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  Future<String> crateApiSimpleInitEngine({required String cacheDir}) {
+  Future<String> crateApiSimpleInitEngine({
+    required String cacheDir,
+    required int vocabShards,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(cacheDir, serializer);
+          sse_encode_u_32(vocabShards, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -212,14 +219,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSimpleInitEngineConstMeta,
-        argValues: [cacheDir],
+        argValues: [cacheDir, vocabShards],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSimpleInitEngineConstMeta =>
-      const TaskConstMeta(debugName: "init_engine", argNames: ["cacheDir"]);
+  TaskConstMeta get kCrateApiSimpleInitEngineConstMeta => const TaskConstMeta(
+    debugName: "init_engine",
+    argNames: ["cacheDir", "vocabShards"],
+  );
 
   @override
   Future<String> crateApiSimpleInitSession() {
@@ -273,6 +282,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  int dco_decode_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
   int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -311,6 +326,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint32();
   }
 
   @protected
@@ -376,6 +397,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint32(self);
   }
 
   @protected

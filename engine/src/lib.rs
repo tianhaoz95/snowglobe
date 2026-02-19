@@ -6,6 +6,7 @@ pub mod rope;
 pub mod weight;
 
 use crate::model::{Qwen, QwenConfig};
+use crate::layer::large_vocab::CHUNK_SIZE;
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
@@ -74,6 +75,9 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
     let response = reqwest::get(url)
         .await
         .map_err(|e| format!("Download failed: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}", response.status()));
+    }
     let mut stream = response.bytes_stream();
     let mut file = File::create(path)
         .await
@@ -104,6 +108,16 @@ pub async fn download_model(cache_dir: String) -> String {
         if let Err(e) = download_file(model_url, &model_path).await {
             return e;
         }
+    } else {
+        // Simple check to ensure file is at least somewhat reasonably sized.
+        if let Ok(meta) = std::fs::metadata(&model_path) {
+            if meta.len() < 900 * 1024 * 1024 { // ~942M expected
+                let _ = std::fs::remove_file(&model_path);
+                if let Err(e) = download_file(model_url, &model_path).await {
+                    return e;
+                }
+            }
+        }
     }
 
     if !tokenizer_path.exists() {
@@ -115,9 +129,15 @@ pub async fn download_model(cache_dir: String) -> String {
     "Success".to_string()
 }
 
-pub async fn init(cache_dir: String, shard_vocab: bool) -> String {
+static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
+
+pub async fn init(cache_dir: String, vocab_shards: usize) -> String {
     let mut config = QwenConfig::default();
-    config.shard_vocab = shard_vocab;
+    config.vocab_shards = if vocab_shards == 0 {
+        (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE
+    } else {
+        vocab_shards
+    };
 
     // 1. Initialize Device based on Feature
     #[cfg(feature = "high_perf")]
@@ -128,11 +148,14 @@ pub async fn init(cache_dir: String, shard_vocab: bool) -> String {
     // 2. Setup GPU only if High Perf is enabled
     #[cfg(feature = "high_perf")]
     {
-        let _setup = burn_wgpu::init_setup_async::<backend_setup::GraphicsApi>(
-            &device,
-            burn_wgpu::RuntimeOptions::default(),
-        )
-        .await;
+        if GPU_SETUP.get().is_none() {
+            let _setup = burn_wgpu::init_setup_async::<backend_setup::GraphicsApi>(
+                &device,
+                burn_wgpu::RuntimeOptions::default(),
+            )
+            .await;
+            let _ = GPU_SETUP.set(());
+        }
     }
 
     let mut model: Qwen<Backend> = config.init(&device);
@@ -164,17 +187,17 @@ pub async fn init(cache_dir: String, shard_vocab: bool) -> String {
 
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
-    GLOBAL_MODEL.set(Mutex::new(model)).unwrap();
-    GLOBAL_TOKENIZER.set(tokenizer).unwrap();
-    GLOBAL_CONFIG.set(config).unwrap();
-    GLOBAL_DEVICE.set(device).unwrap();
-    SESSIONS.set(DashMap::new()).unwrap();
+    let _ = GLOBAL_MODEL.set(Mutex::new(model));
+    let _ = GLOBAL_TOKENIZER.set(tokenizer);
+    let _ = GLOBAL_CONFIG.set(config);
+    let _ = GLOBAL_DEVICE.set(device);
+    let _ = SESSIONS.set(DashMap::new());
     return "Success".to_string();
 }
 
 pub fn init_session() -> String {
     let session_id = Uuid::new_v4().to_string();
-    let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
+    let tokenizer = GLOBAL_TOKENIZER.get().expect("Global tokenizer not initialized. Call init first.");
     let mut token_ids = Vec::new();
     let im_start_id = tokenizer
         .token_to_id("<|im_start|>")
@@ -197,7 +220,7 @@ pub fn init_session() -> String {
     token_ids.push(newline_id);
     SESSIONS
         .get()
-        .unwrap()
+        .expect("SESSIONS not initialized. Call init first.")
         .insert(session_id.clone(), token_ids);
     session_id
 }
@@ -220,12 +243,12 @@ pub fn generate_response<S>(session_id: &str, prompt: &str, sink: S) -> Result<(
 where
     S: StreamSink<String>,
 {
-    let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
-    let config = GLOBAL_CONFIG.get().unwrap();
-    let device = GLOBAL_DEVICE.get().unwrap();
-    let model = GLOBAL_MODEL.get().unwrap().lock();
+    let tokenizer = GLOBAL_TOKENIZER.get().expect("Global tokenizer not initialized.");
+    let config = GLOBAL_CONFIG.get().expect("Global config not initialized.");
+    let device = GLOBAL_DEVICE.get().expect("Global device not initialized.");
+    let model = GLOBAL_MODEL.get().expect("Global model not initialized.").lock();
 
-    let mut token_ids = SESSIONS.get().unwrap().get_mut(session_id).unwrap();
+    let mut token_ids = SESSIONS.get().expect("SESSIONS not initialized.").get_mut(session_id).unwrap();
 
     let im_start_id = tokenizer
         .token_to_id("<|im_start|>")
@@ -266,6 +289,7 @@ where
                 0..config.vocab_size,
             ])
             .reshape([1, config.vocab_size]);
+
         // Burn 0.20.1 preferred way to sync GPU data to CPU
         let next_token_id = next_token_logits
             .argmax(1)
@@ -311,12 +335,17 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_one_plus_one() {
+    async fn setup_test() -> String {
         let cache_dir = "./tmp/testing";
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
         download_model(cache_dir.to_string()).await;
-        init(cache_dir.to_string(), false).await;
+        cache_dir.to_string()
+    }
+
+    #[tokio::test]
+    async fn test_one_plus_one() {
+        let cache_dir = setup_test().await;
+        init(cache_dir, 1).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 
@@ -333,10 +362,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_sharded_one_plus_one() {
-        let cache_dir = "./tmp/testing_sharded";
-        tokio::fs::create_dir_all(cache_dir).await.unwrap();
-        download_model(cache_dir.to_string()).await;
-        init(cache_dir.to_string(), true).await;
+        let cache_dir = setup_test().await;
+        init(cache_dir, 0).await;
+        let session_id = init_session();
+        let prompt = "what is 1+1? only answer with numbers";
+
+        let sink = TestSink(Mutex::new(String::new()));
+        let result = generate_response(&session_id, prompt, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert_eq!(response.trim(), "2");
+    }
+
+    #[tokio::test]
+    async fn test_multi_sharded_one_plus_one() {
+        let cache_dir = setup_test().await;
+        init(cache_dir, 10).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 

@@ -1,8 +1,8 @@
 use crate::frb_generated::StreamSink;
 use snowglobe::{self};
 
-pub async fn init_engine(cache_dir: String) -> String {
-    snowglobe::init(cache_dir).await
+pub async fn init_engine(cache_dir: String, vocab_shards: u32) -> String {
+    snowglobe::init(cache_dir, vocab_shards as usize).await
 }
 
 pub fn check_backend() -> String {

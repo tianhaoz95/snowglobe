@@ -8,8 +8,12 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
-snowglobe = { version = "0.1.0", path = "../../engine", features = ["high_perf"] }
+snowglobe = { version = "0.1.0", path = "../../engine" }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[features]
+default = []
+high_perf = ["snowglobe/high_perf"]

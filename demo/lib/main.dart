@@ -25,7 +25,9 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _promptController = TextEditingController(text: 'what is 1+1? only answer with numbers');
+    _promptController = TextEditingController(
+      text: 'what is 1+1? only answer with numbers',
+    );
     _initEngineFuture = _initEngine();
   }
 
@@ -45,7 +47,10 @@ class _MyAppState extends State<MyApp> {
     // Download model and tokenizer before initializing engine
     await _downloadModelAndTokenizer(cacheDir.path);
 
-    final initResult = await initEngine(cacheDir: cacheDir.path);
+    final initResult = await initEngine(
+      cacheDir: cacheDir.path,
+      vocabShards: 8,
+    );
     print('Engine initialized: $initResult');
     _sessionId = await initSession(); // Store the session ID
     print('Session ID: $_sessionId');
@@ -99,13 +104,15 @@ class _MyAppState extends State<MyApp> {
         int downloaded = 0;
         final file = File(savePath);
         final sink = file.openWrite();
-        
+
         await for (var chunk in response) {
           downloaded += chunk.length;
           sink.add(chunk);
-          
+
           if (contentLength > 0) {
-            final progress = (downloaded / contentLength * 100).toStringAsFixed(1);
+            final progress = (downloaded / contentLength * 100).toStringAsFixed(
+              1,
+            );
             setState(() {
               _response = 'Downloading $label: $progress%';
             });
@@ -136,7 +143,7 @@ class _MyAppState extends State<MyApp> {
     try {
       final String currentPrompt = _promptController.text;
       final stopwatch = Stopwatch()..start(); // Start stopwatch
-      
+
       final tokenStream = generateResponse(
         sessionId: _sessionId!,
         prompt: currentPrompt,
@@ -149,7 +156,9 @@ class _MyAppState extends State<MyApp> {
       }
 
       stopwatch.stop(); // Stop stopwatch
-      print('Generation finished in ${stopwatch.elapsed.inMilliseconds / 1000.0} seconds');
+      print(
+        'Generation finished in ${stopwatch.elapsed.inMilliseconds / 1000.0} seconds',
+      );
     } catch (e) {
       setState(() {
         _response = 'Error: $e';

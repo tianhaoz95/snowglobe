@@ -28,7 +28,7 @@ pub struct QwenConfig {
 
     // General transformer settings
     pub dropout: f32,
-    pub shard_vocab: bool,
+    pub vocab_shards: usize,
 }
 
 impl QwenConfig {
@@ -44,8 +44,13 @@ impl QwenConfig {
         let dropout = self.dropout;
         let qkv_bias = self.qkv_bias;
 
-        let embedding = if self.shard_vocab {
-            VocabEmbedding::Sharded(LargeVocabEmbedding::init(vocab_size, hidden_size, device))
+        let embedding = if self.vocab_shards > 1 {
+            VocabEmbedding::Sharded(LargeVocabEmbedding::init(
+                vocab_size,
+                hidden_size,
+                self.vocab_shards,
+                device,
+            ))
         } else {
             VocabEmbedding::Normal(EmbeddingConfig::new(vocab_size, hidden_size).init(device))
         };
@@ -80,8 +85,13 @@ impl QwenConfig {
                     bias: None,
                 }),
             }
-        } else if self.shard_vocab {
-            VocabLinear::Sharded(LargeVocabLinear::init(hidden_size, vocab_size, device))
+        } else if self.vocab_shards > 1 {
+            VocabLinear::Sharded(LargeVocabLinear::init(
+                hidden_size,
+                vocab_size,
+                self.vocab_shards,
+                device,
+            ))
         } else {
             VocabLinear::Normal(LinearConfig::new(hidden_size, vocab_size).init(device))
         };
@@ -112,7 +122,7 @@ impl Default for QwenConfig {
             qkv_bias: true,
             hidden_act: "silu".to_string(),
             dropout: 0.0,
-            shard_vocab: false,
+            vocab_shards: 1,
         }
     }
 }
