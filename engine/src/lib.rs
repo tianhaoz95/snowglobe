@@ -346,6 +346,94 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn test_kv_cache_latency_comparison() {
+        let cache_dir = setup_test().await;
+        init(cache_dir, 1).await;
+
+        let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
+        let model = GLOBAL_MODEL.get().unwrap().lock();
+        let device = GLOBAL_DEVICE.get().unwrap();
+
+        // Create a moderately long prompt to make the difference noticeable
+        let prompt = "The quick brown fox jumps over the lazy dog. ".repeat(60);
+        let tokens = tokenizer.encode(prompt, false).unwrap().get_ids().to_vec();
+        let n = tokens.len();
+        println!("Benchmark sequence length: {} tokens", n);
+
+        // 1. Prefill to get initial cache
+        let input_prefill: Tensor<Backend, 2, Int> = Tensor::from_data(
+            TensorData::new(
+                tokens.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+                Shape::new([1, n]),
+            ),
+            device,
+        );
+        let (_, cache) = model.forward(input_prefill, None, 0);
+
+        // 2. Measure "With KV Cache" (Generating 1 token)
+        let next_token_id = 1234u32;
+        let input_cached: Tensor<Backend, 2, Int> = Tensor::from_data(
+            TensorData::new(vec![next_token_id as i32], Shape::new([1, 1])),
+            device,
+        );
+
+        // Warmup
+        for _ in 0..3 {
+            let _ = model.forward(
+                input_cached.clone(),
+                Some(cache.iter().cloned().map(Some).collect()),
+                n,
+            );
+        }
+
+        let start_cached = std::time::Instant::now();
+        let iterations = 10;
+        for _ in 0..iterations {
+            let _ = model.forward(
+                input_cached.clone(),
+                Some(cache.iter().cloned().map(Some).collect()),
+                n,
+            );
+        }
+        let duration_cached = start_cached.elapsed() / iterations;
+
+        // 3. Measure "Without KV Cache" (Processing N+1 tokens from scratch)
+        let mut tokens_full = tokens.clone();
+        tokens_full.push(next_token_id);
+        let input_full: Tensor<Backend, 2, Int> = Tensor::from_data(
+            TensorData::new(
+                tokens_full.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+                Shape::new([1, n + 1]),
+            ),
+            device,
+        );
+
+        // Warmup
+        for _ in 0..3 {
+            let _ = model.forward(input_full.clone(), None, 0);
+        }
+
+        let start_full = std::time::Instant::now();
+        for _ in 0..iterations {
+            let _ = model.forward(input_full.clone(), None, 0);
+        }
+        let duration_full = start_full.elapsed() / iterations;
+
+        let speedup = duration_full.as_secs_f64() / duration_cached.as_secs_f64();
+        println!("Latency WITH KV Cache:    {:?}", duration_cached);
+        println!("Latency WITHOUT KV Cache: {:?}", duration_full);
+        println!("Measured Speedup:         {:.2}x", speedup);
+
+        // With N tokens, the "Without KV Cache" forward pass should be significantly slower.
+        // We expect at least 2x speedup for this sequence length.
+        assert!(
+            speedup >= 2.0,
+            "KV Cache speedup was only {:.2}x, expected >= 2.0x",
+            speedup
+        );
+    }
+
+    #[tokio::test]
     async fn test_multi_turn() {
         let cache_dir = setup_test().await;
         init(cache_dir, 1).await;
