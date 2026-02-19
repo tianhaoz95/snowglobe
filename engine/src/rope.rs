@@ -6,15 +6,12 @@ pub fn apply_rotary_pos_emb<B: Backend>(
     key: Tensor<B, 4>,
     sin_cached: &Tensor<B, 4>,
     cos_cached: &Tensor<B, 4>,
-    seq_len: usize,
+    offset: usize,
 ) -> (Tensor<B, 4>, Tensor<B, 4>) {
-    let [_, _, _seq_len, head_dim] = query.dims();
+    let [batch_size, num_heads, seq_len, head_dim] = query.dims();
 
     // 1. Implementation of "Rotate Half"
     let rotate_half = |x: Tensor<B, 4>| {
-        let dims = x.dims();
-        let [batch_size, num_heads, seq_len, head_dim] = dims;
-
         let x1 = x
             .clone()
             .slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim / 2]);
@@ -30,13 +27,13 @@ pub fn apply_rotary_pos_emb<B: Backend>(
     let q_rotated = rotate_half(query.clone());
     let k_rotated = rotate_half(key.clone());
 
-    // 2. Slice cache to current sequence length
+    // 2. Slice cache to current sequence length with offset
     let cos = cos_cached
         .clone()
-        .slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
+        .slice([0..1, 0..1, offset..offset + seq_len, 0..head_dim]);
     let sin = sin_cached
         .clone()
-        .slice([0..1, 0..1, 0..seq_len, 0..head_dim]);
+        .slice([0..1, 0..1, offset..offset + seq_len, 0..head_dim]);
 
     // 3. Standard RoPE formula: (x * cos) + (rotate_half(x) * sin)
     let q_out = query.mul(cos.clone()).add(q_rotated.mul(sin.clone()));

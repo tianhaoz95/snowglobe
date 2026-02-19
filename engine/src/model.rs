@@ -136,19 +136,35 @@ pub struct Qwen<B: Backend> {
     pub linear_output: VocabLinear<B>,
 }
 
+#[derive(Clone, Debug)]
+pub struct KVCache<B: Backend> {
+    pub key: Tensor<B, 4>,
+    pub value: Tensor<B, 4>,
+}
+
 impl<B: Backend> Qwen<B> {
-    pub fn forward(&self, input: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+    pub fn forward(
+        &self,
+        input: Tensor<B, 2, Int>,
+        cache: Option<Vec<Option<KVCache<B>>>>,
+        offset: usize,
+    ) -> (Tensor<B, 3>, Vec<KVCache<B>>) {
         let mut x = self.embedding.forward(input); // Output will be [batch_size, seq_len, hidden_size]
 
-        for layer in &self.layers {
-            x = layer.forward(x);
+        let mut next_cache = Vec::new();
+        let cache = cache.unwrap_or_else(|| vec![None; self.layers.len()]);
+
+        for (layer, layer_cache) in self.layers.iter().zip(cache) {
+            let (out, new_cache) = layer.forward(x, layer_cache, offset);
+            x = out;
+            next_cache.push(new_cache);
         }
 
         x = self.rms_norm.forward(x);
 
         let logits = self.linear_output.forward(x);
 
-        logits
+        (logits, next_cache)
     }
 }
 
@@ -236,13 +252,20 @@ pub struct QwenBlock<B: Backend> {
 }
 
 impl<B: Backend> QwenBlock<B> {
-    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+    pub fn forward(
+        &self,
+        input: Tensor<B, 3>,
+        cache: Option<KVCache<B>>,
+        offset: usize,
+    ) -> (Tensor<B, 3>, KVCache<B>) {
         let hidden_states = self.self_attn_norm.forward(input.clone());
-        let self_attn_output = self.self_attn.forward(
+        let (self_attn_output, new_cache) = self.self_attn.forward(
             hidden_states.clone(),
             hidden_states.clone(),
             hidden_states,
             None,
+            cache,
+            offset,
         );
 
         let hidden_states = input + self_attn_output;
@@ -250,7 +273,7 @@ impl<B: Backend> QwenBlock<B> {
         let mlp_output = self
             .mlp
             .forward(self.mlp_norm.forward(hidden_states.clone()));
-        hidden_states + mlp_output
+        (hidden_states + mlp_output, new_cache)
     }
 }
 
@@ -350,7 +373,9 @@ impl<B: Backend> QwenAttention<B> {
         key: Tensor<B, 3>,   // [batch_size, seq_len, hidden_size]
         value: Tensor<B, 3>, // [batch_size, seq_len, hidden_size]
         _mask: Option<Tensor<B, 3>>,
-    ) -> Tensor<B, 3> {
+        cache: Option<KVCache<B>>,
+        offset: usize,
+    ) -> (Tensor<B, 3>, KVCache<B>) {
         let [batch_size, seq_len, _hidden_size] = query.dims();
 
         let q = self.q_proj.forward(query); // [batch_size, seq_len, num_attention_heads * head_dim]
@@ -373,55 +398,73 @@ impl<B: Backend> QwenAttention<B> {
             k_reshaped,
             &self.sin_cached,
             &self.cos_cached,
-            seq_len,
+            offset,
         );
 
+        let (k_final, v_final) = if let Some(c) = cache {
+            (
+                Tensor::cat(vec![c.key, k_rotated], 2),
+                Tensor::cat(vec![c.value, v_reshaped], 2),
+            )
+        } else {
+            (k_rotated, v_reshaped)
+        };
+
+        let new_cache = KVCache {
+            key: k_final.clone(),
+            value: v_final.clone(),
+        };
+
         // Grouped Query Attention (GQA)
+        let [_batch_size, _num_heads, seq_len_k, _head_dim] = k_final.dims();
+
         let k_gqa = if self.num_key_value_heads < self.num_attention_heads {
             // Repeat the K heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
             // k_rotated.repeat(&[1, num_reps, 1, 1])
-            k_rotated
+            k_final
                 .reshape([
                     batch_size,
                     self.num_key_value_heads,
                     1,
-                    seq_len,
+                    seq_len_k,
                     self.head_dim,
                 ])
                 .repeat(&[1, 1, num_reps, 1, 1])
-                .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
+                .reshape([batch_size, self.num_attention_heads, seq_len_k, self.head_dim])
         } else {
-            k_rotated
+            k_final
         };
         let v_gqa = if self.num_key_value_heads < self.num_attention_heads {
             // Repeat the V heads
             let num_reps = self.num_attention_heads / self.num_key_value_heads;
-            v_reshaped
+            v_final
                 .reshape([
                     batch_size,
                     self.num_key_value_heads,
                     1,
-                    seq_len,
+                    seq_len_k,
                     self.head_dim,
                 ])
                 .repeat(&[1, 1, num_reps, 1, 1])
-                .reshape([batch_size, self.num_attention_heads, seq_len, self.head_dim])
+                .reshape([batch_size, self.num_attention_heads, seq_len_k, self.head_dim])
         } else {
-            v_reshaped
+            v_final
         };
 
         // Scaled Dot-Product Attention
-        let scores = q_rotated.matmul(k_gqa.swap_dims(2, 3)); // [batch_size, num_attention_heads, seq_len, seq_len]
+        let scores = q_rotated.matmul(k_gqa.swap_dims(2, 3)); // [batch_size, num_attention_heads, seq_len, seq_len_k]
         let mut scores = scores.div_scalar(f64::sqrt(self.head_dim as f64));
 
         // Causal mask
         let [_batch_size, _num_heads, seq_len_q, seq_len_k] = scores.dims();
-        let causal_mask = Tensor::<B, 2>::ones([seq_len_q, seq_len_k], &scores.device())
-            .tril(0)
-            .bool()
-            .reshape([1, 1, seq_len_q, seq_len_k]);
-        scores = scores.mask_fill(causal_mask.equal_elem(false), f64::NEG_INFINITY);
+        if seq_len_q > 1 {
+            let causal_mask = Tensor::<B, 2>::ones([seq_len_q, seq_len_k], &scores.device())
+                .tril(offset as i64)
+                .bool()
+                .reshape([1, 1, seq_len_q, seq_len_k]);
+            scores = scores.mask_fill(causal_mask.equal_elem(false), f64::NEG_INFINITY);
+        }
 
         // Apply mask (if provided)
         // if let Some(mask) = _mask {
@@ -438,7 +481,7 @@ impl<B: Backend> QwenAttention<B> {
             self.num_attention_heads * self.head_dim,
         ]); // [batch_size, seq_len, hidden_size]
 
-        self.o_proj.forward(attn_output)
+        (self.o_proj.forward(attn_output), new_cache)
     }
 }
 

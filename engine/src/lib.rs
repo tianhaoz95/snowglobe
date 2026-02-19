@@ -5,7 +5,7 @@ pub mod layer;
 pub mod rope;
 pub mod weight;
 
-use crate::model::{Qwen, QwenConfig};
+use crate::model::{KVCache, Qwen, QwenConfig};
 use crate::layer::large_vocab::CHUNK_SIZE;
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
@@ -61,7 +61,14 @@ pub use backend_setup::GLOBAL_DEVICE;
 static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
 static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
 static GLOBAL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
-static SESSIONS: OnceCell<DashMap<String, Vec<u32>>> = OnceCell::new();
+
+pub struct SessionState {
+    pub tokens: Vec<u32>,
+    pub cache: Option<Vec<KVCache<Backend>>>,
+    pub offset: usize,
+}
+
+static SESSIONS: OnceCell<DashMap<String, SessionState>> = OnceCell::new();
 
 pub fn check_backend() -> String {
     #[cfg(feature = "high_perf")]
@@ -218,10 +225,17 @@ pub fn init_session() -> String {
     token_ids.extend(system_tokens);
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
+
+    let state = SessionState {
+        tokens: token_ids,
+        cache: None,
+        offset: 0,
+    };
+
     SESSIONS
         .get()
         .expect("SESSIONS not initialized. Call init first.")
-        .insert(session_id.clone(), token_ids);
+        .insert(session_id.clone(), state);
     session_id
 }
 
@@ -248,7 +262,7 @@ where
     let device = GLOBAL_DEVICE.get().expect("Global device not initialized.");
     let model = GLOBAL_MODEL.get().expect("Global model not initialized.").lock();
 
-    let mut token_ids = SESSIONS.get().expect("SESSIONS not initialized.").get_mut(session_id).unwrap();
+    let mut session_state = SESSIONS.get().expect("SESSIONS not initialized.").get_mut(session_id).unwrap();
 
     let im_start_id = tokenizer
         .token_to_id("<|im_start|>")
@@ -260,40 +274,51 @@ where
 
     let user_tokens = tokenizer.encode(prompt, false).unwrap().get_ids().to_vec();
 
-    token_ids.push(im_start_id);
-    token_ids.extend(tokenizer.encode("user", false).unwrap().get_ids());
-    token_ids.push(newline_id);
-    token_ids.extend(user_tokens);
-    token_ids.push(im_end_id);
-    token_ids.push(newline_id);
-    token_ids.push(im_start_id);
-    token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
-    token_ids.push(newline_id);
+    session_state.tokens.push(im_start_id);
+    session_state.tokens.extend(tokenizer.encode("user", false).unwrap().get_ids());
+    session_state.tokens.push(newline_id);
+    session_state.tokens.extend(user_tokens);
+    session_state.tokens.push(im_end_id);
+    session_state.tokens.push(newline_id);
+    session_state.tokens.push(im_start_id);
+    session_state.tokens.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    session_state.tokens.push(newline_id);
 
     for _ in 0..256 {
-        // Generate up to 256 tokens
+        // 1. Process all pending tokens
+        let num_pending = session_state.tokens.len() - session_state.offset;
+        if num_pending == 0 {
+             break;
+        }
+
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(
-                token_ids.clone().into_iter().map(|x| x as i32).collect(),
-                Shape::new([1, token_ids.len()]),
+                session_state.tokens[session_state.offset..].iter().map(|&x| x as i32).collect::<Vec<_>>(),
+                Shape::new([1, num_pending]),
             ),
             device,
         );
 
-        let output = model.forward(input_tensor);
+        let (output, new_cache) = model.forward(
+            input_tensor,
+            session_state.cache.clone().map(|c| c.into_iter().map(Some).collect()),
+            session_state.offset
+        );
+
+        session_state.cache = Some(new_cache);
+        session_state.offset += num_pending;
 
         let next_token_logits = output
             .slice([
                 0..1,
-                (token_ids.len() - 1)..(token_ids.len()),
+                (num_pending - 1)..(num_pending),
                 0..config.vocab_size,
             ])
             .reshape([1, config.vocab_size]);
 
-        // Burn 0.20.1 preferred way to sync GPU data to CPU
         let next_token_id = next_token_logits
             .argmax(1)
-            .to_data() // Forces a GPU sync and returns TensorData
+            .to_data()
             .into_vec::<i32>()
             .expect("GPU Sync Failed")[0] as u32;
 
@@ -301,7 +326,7 @@ where
             break;
         }
 
-        token_ids.push(next_token_id);
+        session_state.tokens.push(next_token_id);
 
         let new_text = tokenizer.decode(&[next_token_id], true).unwrap_or_default();
         if !new_text.is_empty() {
@@ -310,8 +335,8 @@ where
             }
         }
     }
-    token_ids.push(im_end_id);
-    token_ids.push(newline_id);
+    session_state.tokens.push(im_end_id);
+    session_state.tokens.push(newline_id);
 
     Ok(())
 }
@@ -319,6 +344,29 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_multi_turn() {
+        let cache_dir = setup_test().await;
+        init(cache_dir, 1).await;
+        let session_id = init_session();
+        
+        // Turn 1
+        let prompt1 = "My name is Alice. Remember that.";
+        let sink1 = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt1, &sink1).unwrap();
+        
+        // Turn 2
+        let prompt2 = "What is my name?";
+        let sink2 = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt2, &sink2).unwrap();
+        
+        let response2 = sink2.0.lock().clone();
+        println!("Prompt 2: {}", prompt2);
+        println!("Response 2: {}", response2);
+        
+        assert!(response2.contains("Alice"));
+    }
 
     #[test]
     fn it_works() {
