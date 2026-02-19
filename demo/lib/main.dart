@@ -22,6 +22,11 @@ class _MyAppState extends State<MyApp> {
   String? _sessionId; // Store session ID
   Future<void>? _initEngineFuture; // Changed to Future<void>
 
+  // Performance metrics
+  int _tokenCount = 0;
+  double _elapsedSeconds = 0;
+  double _tokensPerSecond = 0;
+
   @override
   void initState() {
     super.initState();
@@ -138,6 +143,9 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _isLoading = true;
       _response = ''; // Clear previous response
+      _tokenCount = 0;
+      _elapsedSeconds = 0;
+      _tokensPerSecond = 0;
     });
 
     try {
@@ -152,12 +160,23 @@ class _MyAppState extends State<MyApp> {
       await for (final token in tokenStream) {
         setState(() {
           _response += token;
+          _tokenCount++;
+          _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+          if (_elapsedSeconds > 0) {
+            _tokensPerSecond = _tokenCount / _elapsedSeconds;
+          }
         });
       }
 
       stopwatch.stop(); // Stop stopwatch
+      setState(() {
+        _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+        if (_elapsedSeconds > 0) {
+          _tokensPerSecond = _tokenCount / _elapsedSeconds;
+        }
+      });
       print(
-        'Generation finished in ${stopwatch.elapsed.inMilliseconds / 1000.0} seconds',
+        'Generation finished in $_elapsedSeconds seconds ($_tokensPerSecond tokens/s)',
       );
     } catch (e) {
       setState(() {
@@ -171,14 +190,22 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  void _clearPrompt() {
+    setState(() {
+      _promptController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      theme: ThemeData(useMaterial3: true),
       home: Scaffold(
         appBar: AppBar(title: const Text('Rust-powered LLM Demo')),
         body: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               FutureBuilder<void>(
                 future: _initEngineFuture,
@@ -192,29 +219,74 @@ class _MyAppState extends State<MyApp> {
                   }
                 },
               ),
+              // 1. Response on the top
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12.0),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(8.0),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      'Response: $_response',
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Performance metrics
+              if (_tokenCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Text(
+                    'Tokens: $_tokenCount | Time: ${_elapsedSeconds.toStringAsFixed(2)}s | Speed: ${_tokensPerSecond.toStringAsFixed(2)} tok/s',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              // 2. Prompt input box in the middle
               TextField(
                 controller: _promptController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Enter your prompt',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: _clearPrompt,
+                    tooltip: 'Clear prompt',
+                  ),
                 ),
                 maxLines: 3,
               ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _generateResponse,
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Generate Response'),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Text(
-                    'Response: $_response',
-                    style: const TextStyle(fontSize: 16),
+              const SizedBox(height: 16),
+              // 3. Buttons on the bottom
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _generateResponse,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.blue,
+                              ),
+                            )
+                          : const Text('Generate Response'),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
