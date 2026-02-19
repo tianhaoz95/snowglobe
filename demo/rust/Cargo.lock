@@ -5583,7 +5583,6 @@ dependencies = [
  "burn",
  "burn-autodiff",
  "burn-tensor",
- "burn-wgpu",
  "bytemuck",
  "dashmap 5.5.3",
  "futures-util",
