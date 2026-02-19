@@ -239,10 +239,6 @@ pub fn init_session() -> String {
     session_id
 }
 
-pub fn generate(name: String) -> String {
-    format!("Hello, {name} :)")
-}
-
 pub trait StreamSink<T> {
     fn add(&self, value: T) -> bool;
 }
@@ -454,13 +450,6 @@ mod tests {
         println!("Response 2: {}", response2);
         
         assert!(response2.contains("Alice"));
-    }
-
-    #[test]
-    fn it_works() {
-        let name = "snowglobe".to_string();
-        let result = generate(name);
-        assert_eq!(result, "Hello, snowglobe :)");
     }
 
     struct TestSink(Mutex<String>);
