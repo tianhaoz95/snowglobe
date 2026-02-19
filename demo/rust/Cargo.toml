@@ -15,5 +15,5 @@ openssl-sys = { version = "0.9", features = ["vendored"] }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [features]
-default = []
-high_perf = ["snowglobe/high_perf"]
+# default = []
+default = ["snowglobe/high_perf"]

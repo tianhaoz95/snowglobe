@@ -1,0 +1,22 @@
+PODS:
+  - FlutterMacOS (1.0.0)
+  - rust_lib_snowglobedemo (0.0.1):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - rust_lib_snowglobedemo (from `Flutter/ephemeral/.symlinks/plugins/rust_lib_snowglobedemo/macos`)
+
+EXTERNAL SOURCES:
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  rust_lib_snowglobedemo:
+    :path: Flutter/ephemeral/.symlinks/plugins/rust_lib_snowglobedemo/macos
+
+SPEC CHECKSUMS:
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  rust_lib_snowglobedemo: 7cf1c137e0033989e6101b4c78873c73df5afb75
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2
