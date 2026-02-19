@@ -169,6 +169,22 @@ pub fn load_qwen_record<B: Backend>(
             true,
         );
 
+        if let (Some(q_norm), Some(k_norm)) = (
+            &mut layer.self_attn.q_norm,
+            &mut layer.self_attn.k_norm,
+        ) {
+            q_norm.gamma = load_tensor_1d(
+                &mut tensors,
+                &format!("{}.self_attn.q_norm.weight", layer_path),
+                device,
+            );
+            k_norm.gamma = load_tensor_1d(
+                &mut tensors,
+                &format!("{}.self_attn.k_norm.weight", layer_path),
+                device,
+            );
+        }
+
         layer.mlp.gate_proj.weight = load_tensor_2d(
             &mut tensors,
             &format!("{}.mlp.gate_proj.weight", layer_path),

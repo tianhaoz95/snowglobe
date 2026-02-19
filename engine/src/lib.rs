@@ -106,29 +106,50 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn download_model(cache_dir: String) -> String {
+pub async fn download_qwen2_5_0_5b_instruct(cache_dir: String) -> String {
     let model_url =
         "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
     let tokenizer_url =
         "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
+    let config_url =
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json";
+    download_model(cache_dir, model_url.to_string(), tokenizer_url.to_string(), config_url.to_string()).await
+}
 
+pub async fn download_qwen3_0_6b(cache_dir: String) -> String {
+    let model_url =
+        "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/model.safetensors";
+    let tokenizer_url =
+        "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/tokenizer.json";
+    let config_url =
+        "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/config.json";
+    download_model(cache_dir, model_url.to_string(), tokenizer_url.to_string(), config_url.to_string()).await
+}
+
+pub async fn download_model(
+    cache_dir: String,
+    model_url: String,
+    tokenizer_url: String,
+    config_url: String,
+) -> String {
     let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
+    let config_path = Path::new(&cache_dir).join("config.json");
 
     if let Err(e) = std::fs::create_dir_all(&cache_dir) {
         return format!("Permission error: {}", e);
     }
 
     if !model_path.exists() {
-        if let Err(e) = download_file(model_url, &model_path).await {
+        if let Err(e) = download_file(&model_url, &model_path).await {
             return e;
         }
     } else {
         // Simple check to ensure file is at least somewhat reasonably sized.
         if let Ok(meta) = std::fs::metadata(&model_path) {
-            if meta.len() < 900 * 1024 * 1024 { // ~942M expected
+            if meta.len() < 500 * 1024 * 1024 { // Smaller threshold for flexibility
                 let _ = std::fs::remove_file(&model_path);
-                if let Err(e) = download_file(model_url, &model_path).await {
+                if let Err(e) = download_file(&model_url, &model_path).await {
                     return e;
                 }
             }
@@ -136,23 +157,35 @@ pub async fn download_model(cache_dir: String) -> String {
     }
 
     if !tokenizer_path.exists() {
-        if let Err(e) = download_file(tokenizer_url, &tokenizer_path).await {
+        if let Err(e) = download_file(&tokenizer_url, &tokenizer_path).await {
+            return e;
+        }
+    }
+
+    if !config_path.exists() {
+        if let Err(e) = download_file(&config_url, &config_path).await {
             return e;
         }
     }
 
     "Success".to_string()
 }
-
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
 pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
-    let mut config = QwenConfig::default();
-    config.vocab_shards = if init_config.vocab_shards == 0 {
-        (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE
+    let config_path = Path::new(&cache_dir).join("config.json");
+    let mut config = if config_path.exists() {
+        let config_str = std::fs::read_to_string(config_path).expect("Failed to read config.json");
+        serde_json::from_str::<QwenConfig>(&config_str).expect("Failed to parse config.json")
     } else {
-        init_config.vocab_shards
+        QwenConfig::default()
     };
+
+    if init_config.vocab_shards != 0 {
+        config.vocab_shards = init_config.vocab_shards;
+    } else if config.vocab_shards == 0 {
+        config.vocab_shards = (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    }
 
     // 1. Initialize Device based on Feature
     #[cfg(feature = "high_perf")]
@@ -353,7 +386,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_kv_cache_latency_comparison() {
-        let cache_dir = setup_test().await;
+        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
         init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
 
         let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
@@ -441,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_turn() {
-        let cache_dir = setup_test().await;
+        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
         init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
         let session_id = init_session();
         
@@ -470,16 +503,19 @@ mod tests {
         }
     }
 
-    async fn setup_test() -> String {
-        let cache_dir = "./tmp/testing";
+    async fn setup_test(cache_dir: &str, model: &str) -> String {
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
-        download_model(cache_dir.to_string()).await;
+        if model == "qwen3" {
+            download_qwen3_0_6b(cache_dir.to_string()).await;
+        } else {
+            download_qwen2_5_0_5b_instruct(cache_dir.to_string()).await;
+        }
         cache_dir.to_string()
     }
 
     #[tokio::test]
     async fn test_one_plus_one() {
-        let cache_dir = setup_test().await;
+        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
         init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
@@ -496,8 +532,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_one_plus_one_qwen3() {
+        let cache_dir = setup_test("./tmp/testing_qwen3", "qwen3").await;
+        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        let session_id = init_session();
+        let prompt = "what is the capital of china? only answer the city name /no_think";
+
+        let sink = TestSink(Mutex::new(String::new()));
+        let result = generate_response(&session_id, prompt, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert!(response.to_lowercase().contains("beijing"));
+    }
+
+    #[tokio::test]
     async fn test_sharded_one_plus_one() {
-        let cache_dir = setup_test().await;
+        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
         init(cache_dir, InitConfig { vocab_shards: 0, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
@@ -515,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_sharded_one_plus_one() {
-        let cache_dir = setup_test().await;
+        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
         init(cache_dir, InitConfig { vocab_shards: 10, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";

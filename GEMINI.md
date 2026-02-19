@@ -6,7 +6,7 @@ Snowglobe is a high-performance, cross-platform LLM (Large Language Model) infer
 
 The project follows a hybrid architecture combining a high-performance Rust core with a modern Flutter UI:
 
-- **Rust Engine (`engine/`)**: The heart of the project. It implements the LLM inference logic (specifically supporting Qwen 2.5 models) using the Burn framework. It features dynamic backend switching between CPU (NdArray) and GPU (WGPU/Vulkan/Metal).
+- **Rust Engine (`engine/`)**: The heart of the project. It implements the LLM inference logic (specifically supporting Qwen 2.5 and Qwen 3 models) using the Burn framework. It features dynamic backend switching between CPU (NdArray) and GPU (WGPU/Vulkan/Metal).
 - **Flutter Integration**: Uses `flutter_rust_bridge` to provide seamless, type-safe communication between the Flutter UI and the Rust engine.
 
 ## Key Project Structure
@@ -21,7 +21,11 @@ When making changes to the Rust **engine**, verify the implementation using the 
 
 ```bash
 # In the engine/ directory
+# Test Qwen 2.5
 cargo test tests::test_one_plus_one --features high_perf -- --nocapture
+# Test Qwen 3
+cargo test tests::test_one_plus_one_qwen3 --features high_perf -- --nocapture
+# Test sharding
 cargo test tests::test_sharded_one_plus_one --features high_perf -- --nocapture
 ```
 
@@ -31,4 +35,4 @@ cargo test tests::test_sharded_one_plus_one --features high_perf -- --nocapture
 - **Engine Core**: Rust
 - **Deep Learning Framework**: [Burn](https://burn.dev/)
 - **Bridge**: [flutter_rust_bridge](https://github.com/fzyzcjy/flutter_rust_bridge)
-- **Model Support**: Qwen 2.5 (Safetensors)
+- **Model Support**: Qwen 2.5 & Qwen 3 (Safetensors)
