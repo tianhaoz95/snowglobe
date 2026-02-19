@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:snowglobedemo/src/rust/api/simple.dart';
 import 'package:snowglobedemo/src/rust/frb_generated.dart';
 import 'dart:io';
@@ -17,10 +18,10 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final TextEditingController _promptController;
-  String _response = 'Press the send button to generate a response.';
+  String _response = 'Type a prompt below to see the magic happen.';
   bool _isLoading = false;
-  String? _sessionId; // Store session ID
-  Future<void>? _initEngineFuture; // Changed to Future<void>
+  String? _sessionId;
+  Future<void>? _initEngineFuture;
 
   // Performance metrics
   int _tokenCount = 0;
@@ -31,7 +32,7 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _promptController = TextEditingController(
-      text: 'what is 1+1? only answer with numbers',
+      text: 'What are three interesting facts about snow globes?',
     );
     _initEngineFuture = _initEngine();
   }
@@ -44,12 +45,9 @@ class _MyAppState extends State<MyApp> {
     print('Backend check: $backend');
     final cacheDir = await getApplicationSupportDirectory();
     if (!await cacheDir.exists()) {
-      print('Creating cache directory: ${cacheDir.path}');
       await cacheDir.create(recursive: true);
     }
-    print('Cache directory: ${cacheDir.path}');
 
-    // Download model and tokenizer before initializing engine
     await _downloadModelAndTokenizer(cacheDir.path);
 
     final initResult = await initEngine(
@@ -57,8 +55,7 @@ class _MyAppState extends State<MyApp> {
       vocabShards: 8,
     );
     print('Engine initialized: $initResult');
-    _sessionId = await initSession(); // Store the session ID
-    print('Session ID: $_sessionId');
+    _sessionId = await initSession();
   }
 
   Future<void> _downloadModelAndTokenizer(String cacheDir) async {
@@ -71,30 +68,23 @@ class _MyAppState extends State<MyApp> {
     final tokenizerPath = '$cacheDir/tokenizer.json';
 
     setState(() {
-      _response = 'Downloading model and tokenizer...';
+      _response = 'Preparing model assets...';
       _isLoading = true;
     });
 
     try {
-      // Replicate engine logic: tokenizer only if it doesn't exist
       if (!await File(tokenizerPath).exists()) {
-        print('Downloading tokenizer...');
-        await _downloadFile(tokenizerUrl, tokenizerPath, 'tokenizer');
+        await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
       }
-
-      // Replicate engine logic: engine currently deletes and re-downloads model
-      // so we do the same to ensure it's there for the engine to (potentially)
-      // replace or use. Note: engine's debug behavior will still delete it.
       if (!await File(modelPath).exists()) {
-        print('Downloading model...');
-        await _downloadFile(modelUrl, modelPath, 'model');
+        await _downloadFile(modelUrl, modelPath, 'Model weights');
       }
     } catch (e) {
       print('Download error: $e');
     } finally {
       setState(() {
         _isLoading = false;
-        _response = 'Downloads complete. Initializing engine...';
+        _response = 'System ready. Let\'s chat!';
       });
     }
   }
@@ -113,24 +103,16 @@ class _MyAppState extends State<MyApp> {
         await for (var chunk in response) {
           downloaded += chunk.length;
           sink.add(chunk);
-
           if (contentLength > 0) {
             final progress = (downloaded / contentLength * 100).toStringAsFixed(
               1,
             );
             setState(() {
-              _response = 'Downloading $label: $progress%';
-            });
-          } else {
-            setState(() {
-              _response = 'Downloading $label: ${downloaded ~/ 1024} KB';
+              _response = 'Fetching $label... ($progress%)';
             });
           }
         }
         await sink.close();
-        print('Downloaded: $savePath');
-      } else {
-        print('Failed to download $url: ${response.statusCode}');
       }
     } finally {
       httpClient.close();
@@ -142,7 +124,7 @@ class _MyAppState extends State<MyApp> {
 
     setState(() {
       _isLoading = true;
-      _response = ''; // Clear previous response
+      _response = '';
       _tokenCount = 0;
       _elapsedSeconds = 0;
       _tokensPerSecond = 0;
@@ -150,7 +132,7 @@ class _MyAppState extends State<MyApp> {
 
     try {
       final String currentPrompt = _promptController.text;
-      final stopwatch = Stopwatch()..start(); // Start stopwatch
+      final stopwatch = Stopwatch()..start();
 
       final tokenStream = generateResponse(
         sessionId: _sessionId!,
@@ -167,22 +149,11 @@ class _MyAppState extends State<MyApp> {
           }
         });
       }
-
-      stopwatch.stop(); // Stop stopwatch
-      setState(() {
-        _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
-        if (_elapsedSeconds > 0) {
-          _tokensPerSecond = _tokenCount / _elapsedSeconds;
-        }
-      });
-      print(
-        'Generation finished in $_elapsedSeconds seconds ($_tokensPerSecond tokens/s)',
-      );
+      stopwatch.stop();
     } catch (e) {
       setState(() {
         _response = 'Error: $e';
       });
-      print('Error generating response: $e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -190,108 +161,223 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void _clearPrompt() {
-    setState(() {
-      _promptController.clear();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return MaterialApp(
-      theme: ThemeData(useMaterial3: true),
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4),
+          brightness: Brightness.light,
+        ),
+        textTheme: GoogleFonts.interTextTheme(),
+      ),
       home: Scaffold(
-        appBar: AppBar(title: const Text('Rust-powered LLM Demo')),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              FutureBuilder<void>(
-                future: _initEngineFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const LinearProgressIndicator();
-                  } else if (snapshot.hasError) {
-                    return Text('Error initializing engine: ${snapshot.error}');
-                  } else {
-                    return const SizedBox.shrink(); // Engine initialized
-                  }
-                },
-              ),
-              // 1. Response on the top
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(12.0),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
-                  child: SingleChildScrollView(
-                    child: Text(
-                      'Response: $_response',
-                      style: const TextStyle(fontSize: 16),
+        backgroundColor: const Color(0xFFF6F7FB),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          title: Text(
+            'SNOWGLOBE',
+            style: GoogleFonts.oswald(
+              letterSpacing: 3,
+              fontWeight: FontWeight.bold,
+              color: colorScheme.primary,
+            ),
+          ),
+          actions: [
+            IconButton(
+              onPressed: () => _promptController.clear(),
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Reset Conversation',
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20.0,
+              vertical: 8.0,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Engine Status Indicator
+                FutureBuilder<void>(
+                  future: _initEngineFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            minHeight: 6,
+                            backgroundColor: colorScheme.surfaceVariant,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              colorScheme.secondary,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+
+                // Response Card
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24.0),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Performance metrics
-              if (_tokenCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: Text(
-                    'Tokens: $_tokenCount | Time: ${_elapsedSeconds.toStringAsFixed(2)}s | Speed: ${_tokensPerSecond.toStringAsFixed(2)} tok/s',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              // 2. Prompt input box in the middle
-              TextField(
-                controller: _promptController,
-                decoration: InputDecoration(
-                  labelText: 'Enter your prompt',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: _clearPrompt,
-                    tooltip: 'Clear prompt',
-                  ),
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              // 3. Buttons on the bottom
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _generateResponse,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.blue,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24.0),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Text(
+                                _response,
+                                style: GoogleFonts.robotoMono(
+                                  fontSize: 16,
+                                  height: 1.6,
+                                  color: Colors.black87,
+                                ),
                               ),
-                            )
-                          : const Text('Generate Response'),
+                            ),
+                          ),
+                          if (_tokenCount > 0 || _isLoading)
+                            _buildPerformanceMetrics(colorScheme),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Prompt Section
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: TextField(
+                    controller: _promptController,
+                    style: const TextStyle(fontSize: 15),
+                    maxLines: 4,
+                    minLines: 1,
+                    decoration: InputDecoration(
+                      hintText: 'Message Snowglobe...',
+                      hintStyle: TextStyle(color: Colors.grey[400]),
+                      contentPadding: const EdgeInsets.all(20),
+                      border: InputBorder.none,
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: IconButton(
+                          onPressed: _isLoading ? null : _generateResponse,
+                          icon: Icon(
+                            _isLoading ? Icons.hourglass_bottom : Icons.send,
+                            color: _isLoading
+                                ? colorScheme.secondary
+                                : colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Footer
+                Text(
+                  'Powered by Qwen 2.5 & Rust Core',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPerformanceMetrics(ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceVariant.withOpacity(0.3),
+        border: Border(
+          top: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.5)),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildMetricItem(
+            Icons.speed,
+            '${_tokensPerSecond.toStringAsFixed(1)} tok/s',
+            colorScheme.primary,
+          ),
+          _buildMetricItem(
+            Icons.numbers,
+            '$_tokenCount tokens',
+            colorScheme.secondary,
+          ),
+          _buildMetricItem(
+            Icons.timer,
+            '${_elapsedSeconds.toStringAsFixed(1)}s',
+            colorScheme.tertiary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricItem(IconData icon, String value, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }
