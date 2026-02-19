@@ -6,10 +6,10 @@
 flutter_rust_bridge_codegen generate --rust-features ""
 
 # Build for CPU only
-flutter run 
+flutter run --release
 
 # Build with GPU (default)
-RUSTFLAGS="--cfg feature=\"high_perf\"" flutter run
+RUSTFLAGS="--cfg feature=\"high_perf\"" flutter run --release
 
 cp \
     ~/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so \
