@@ -11,10 +11,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 Future<String> initEngine({
   required String cacheDir,
-  required int vocabShards,
+  required InitConfig config,
 }) => RustLib.instance.api.crateApiSimpleInitEngine(
   cacheDir: cacheDir,
-  vocabShards: vocabShards,
+  config: config,
 );
 
 Future<String> checkBackend() =>
@@ -30,3 +30,21 @@ Stream<String> generateResponse({
   sessionId: sessionId,
   prompt: prompt,
 );
+
+class InitConfig {
+  final int vocabShards;
+  final int maxGenLen;
+
+  const InitConfig({required this.vocabShards, required this.maxGenLen});
+
+  @override
+  int get hashCode => vocabShards.hashCode ^ maxGenLen.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InitConfig &&
+          runtimeType == other.runtimeType &&
+          vocabShards == other.vocabShards &&
+          maxGenLen == other.maxGenLen;
+}

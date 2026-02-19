@@ -174,13 +174,13 @@ fn wire__crate__api__simple__init_engine_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_cache_dir = <String>::sse_decode(&mut deserializer);
-            let api_vocab_shards = <u32>::sse_decode(&mut deserializer);
+            let api_config = <crate::api::simple::InitConfig>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, ()>(
                     (move || async move {
                         let output_ok = Result::<_, ()>::Ok(
-                            crate::api::simple::init_engine(api_cache_dir, api_vocab_shards).await,
+                            crate::api::simple::init_engine(api_cache_dir, api_config).await,
                         )?;
                         Ok(output_ok)
                     })()
@@ -246,6 +246,18 @@ impl SseDecode for String {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
+    }
+}
+
+impl SseDecode for crate::api::simple::InitConfig {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_vocabShards = <u32>::sse_decode(deserializer);
+        let mut var_maxGenLen = <u32>::sse_decode(deserializer);
+        return crate::api::simple::InitConfig {
+            vocab_shards: var_vocabShards,
+            max_gen_len: var_maxGenLen,
+        };
     }
 }
 
@@ -326,6 +338,28 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::simple::InitConfig {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.vocab_shards.into_into_dart().into_dart(),
+            self.max_gen_len.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::simple::InitConfig
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::simple::InitConfig>
+    for crate::api::simple::InitConfig
+{
+    fn into_into_dart(self) -> crate::api::simple::InitConfig {
+        self
+    }
+}
+
 impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -344,6 +378,14 @@ impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.into_bytes(), serializer);
+    }
+}
+
+impl SseEncode for crate::api::simple::InitConfig {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.vocab_shards, serializer);
+        <u32>::sse_encode(self.max_gen_len, serializer);
     }
 }
 

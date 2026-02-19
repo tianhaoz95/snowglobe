@@ -60,7 +60,15 @@ pub use backend_setup::GLOBAL_DEVICE;
 
 static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
 static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
-static GLOBAL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
+static GLOBAL_MODEL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
+
+#[derive(Debug, Clone)]
+pub struct InitConfig {
+    pub vocab_shards: usize,
+    pub max_gen_len: usize,
+}
+
+static GLOBAL_INIT_CONFIG: OnceCell<InitConfig> = OnceCell::new();
 
 pub struct SessionState {
     pub tokens: Vec<u32>,
@@ -138,12 +146,12 @@ pub async fn download_model(cache_dir: String) -> String {
 
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
-pub async fn init(cache_dir: String, vocab_shards: usize) -> String {
+pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
     let mut config = QwenConfig::default();
-    config.vocab_shards = if vocab_shards == 0 {
+    config.vocab_shards = if init_config.vocab_shards == 0 {
         (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE
     } else {
-        vocab_shards
+        init_config.vocab_shards
     };
 
     // 1. Initialize Device based on Feature
@@ -196,8 +204,9 @@ pub async fn init(cache_dir: String, vocab_shards: usize) -> String {
 
     let _ = GLOBAL_MODEL.set(Mutex::new(model));
     let _ = GLOBAL_TOKENIZER.set(tokenizer);
-    let _ = GLOBAL_CONFIG.set(config);
+    let _ = GLOBAL_MODEL_CONFIG.set(config);
     let _ = GLOBAL_DEVICE.set(device);
+    let _ = GLOBAL_INIT_CONFIG.set(init_config);
     let _ = SESSIONS.set(DashMap::new());
     return "Success".to_string();
 }
@@ -254,7 +263,8 @@ where
     S: StreamSink<String>,
 {
     let tokenizer = GLOBAL_TOKENIZER.get().expect("Global tokenizer not initialized.");
-    let config = GLOBAL_CONFIG.get().expect("Global config not initialized.");
+    let model_config = GLOBAL_MODEL_CONFIG.get().expect("Global model config not initialized.");
+    let init_config = GLOBAL_INIT_CONFIG.get().expect("Global init config not initialized.");
     let device = GLOBAL_DEVICE.get().expect("Global device not initialized.");
     let model = GLOBAL_MODEL.get().expect("Global model not initialized.").lock();
 
@@ -280,7 +290,7 @@ where
     session_state.tokens.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
     session_state.tokens.push(newline_id);
 
-    for _ in 0..256 {
+    for _ in 0..init_config.max_gen_len {
         // 1. Process all pending tokens
         let num_pending = session_state.tokens.len() - session_state.offset;
         if num_pending == 0 {
@@ -308,9 +318,9 @@ where
             .slice([
                 0..1,
                 (num_pending - 1)..(num_pending),
-                0..config.vocab_size,
+                0..model_config.vocab_size,
             ])
-            .reshape([1, config.vocab_size]);
+            .reshape([1, model_config.vocab_size]);
 
         let next_token_id = next_token_logits
             .argmax(1)
@@ -344,7 +354,7 @@ mod tests {
     #[tokio::test]
     async fn test_kv_cache_latency_comparison() {
         let cache_dir = setup_test().await;
-        init(cache_dir, 1).await;
+        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
 
         let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
         let model = GLOBAL_MODEL.get().unwrap().lock();
@@ -432,7 +442,7 @@ mod tests {
     #[tokio::test]
     async fn test_multi_turn() {
         let cache_dir = setup_test().await;
-        init(cache_dir, 1).await;
+        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
         let session_id = init_session();
         
         // Turn 1
@@ -470,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_one_plus_one() {
         let cache_dir = setup_test().await;
-        init(cache_dir, 1).await;
+        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 
@@ -488,7 +498,7 @@ mod tests {
     #[tokio::test]
     async fn test_sharded_one_plus_one() {
         let cache_dir = setup_test().await;
-        init(cache_dir, 0).await;
+        init(cache_dir, InitConfig { vocab_shards: 0, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 
@@ -506,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn test_multi_sharded_one_plus_one() {
         let cache_dir = setup_test().await;
-        init(cache_dir, 10).await;
+        init(cache_dir, InitConfig { vocab_shards: 10, max_gen_len: 256 }).await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 

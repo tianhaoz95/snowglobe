@@ -52,7 +52,7 @@ class _MyAppState extends State<MyApp> {
 
     final initResult = await initEngine(
       cacheDir: cacheDir.path,
-      vocabShards: 8,
+      config: const InitConfig(vocabShards: 8, maxGenLen: 64),
     );
     print('Engine initialized: $initResult');
     _sessionId = await initSession();

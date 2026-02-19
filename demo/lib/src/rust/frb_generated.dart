@@ -88,7 +88,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<String> crateApiSimpleInitEngine({
     required String cacheDir,
-    required int vocabShards,
+    required InitConfig config,
   });
 
   Future<String> crateApiSimpleInitSession();
@@ -199,14 +199,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<String> crateApiSimpleInitEngine({
     required String cacheDir,
-    required int vocabShards,
+    required InitConfig config,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(cacheDir, serializer);
-          sse_encode_u_32(vocabShards, serializer);
+          sse_encode_box_autoadd_init_config(config, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -219,7 +219,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiSimpleInitEngineConstMeta,
-        argValues: [cacheDir, vocabShards],
+        argValues: [cacheDir, config],
         apiImpl: this,
       ),
     );
@@ -227,7 +227,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiSimpleInitEngineConstMeta => const TaskConstMeta(
     debugName: "init_engine",
-    argNames: ["cacheDir", "vocabShards"],
+    argNames: ["cacheDir", "config"],
   );
 
   @override
@@ -276,6 +276,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  InitConfig dco_decode_box_autoadd_init_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_init_config(raw);
+  }
+
+  @protected
+  InitConfig dco_decode_init_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return InitConfig(
+      vocabShards: dco_decode_u_32(arr[0]),
+      maxGenLen: dco_decode_u_32(arr[1]),
+    );
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -319,6 +337,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  InitConfig sse_decode_box_autoadd_init_config(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_init_config(deserializer));
+  }
+
+  @protected
+  InitConfig sse_decode_init_config(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_vocabShards = sse_decode_u_32(deserializer);
+    var var_maxGenLen = sse_decode_u_32(deserializer);
+    return InitConfig(vocabShards: var_vocabShards, maxGenLen: var_maxGenLen);
   }
 
   @protected
@@ -387,6 +419,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_init_config(
+    InitConfig self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_init_config(self, serializer);
+  }
+
+  @protected
+  void sse_encode_init_config(InitConfig self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.vocabShards, serializer);
+    sse_encode_u_32(self.maxGenLen, serializer);
   }
 
   @protected
