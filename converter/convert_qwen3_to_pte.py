@@ -10,6 +10,7 @@ import os
 from executorch.exir import EdgeCompileConfig, to_edge
 from torch.export import export
 from executorch.backends.apple.mps.partition import MPSPartitioner
+from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
 
 from transformers import AutoTokenizer
 
@@ -218,6 +219,7 @@ def main():
     # Disabling by default to ensure reliability on CPU/XNNPACK.
     # print("Partitioning for MPS...")
     # edge_program = edge_program.to_backend(MPSPartitioner([]))
+    edge_program = edge_program.to_backend(XnnpackPartitioner())
 
     # 3. Export to PTE
     pte_filename = "qwen3_0.6b.pte"

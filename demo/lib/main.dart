@@ -51,6 +51,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     await _downloadModelAndTokenizer(cacheDir.path);
+    print('Application Support Directory: ${cacheDir.path}');
 
     final initResult = await initEngine(
       cacheDir: cacheDir.path,
@@ -220,6 +221,31 @@ class _MyAppState extends State<MyApp> {
 
     try {
       final String currentPrompt = _promptController.text;
+
+      // Dummy call to PTE inference if prompt starts with "pte:"
+      if (currentPrompt.startsWith('pte:')) {
+        final prompt = currentPrompt.substring(4);
+        final cacheDir = await getApplicationSupportDirectory();
+        // Check if qwen3_0.6b.pte exists in cacheDir, otherwise use root path for testing if on desktop
+        // On Android, it should be in files dir.
+        final ptePath = '${cacheDir.path}/qwen3_0.6b.pte';
+        if (!await File(ptePath).exists()) {
+          setState(() {
+            _response = 'PTE file not found at $ptePath. Please upload it to the device first.';
+          });
+          return;
+        }
+        
+        final result = await experimentalCompletionWithPte(
+          ptePath: ptePath,
+          prompt: prompt,
+        );
+        setState(() {
+          _response = result;
+        });
+        return;
+      }
+
       final stopwatch = Stopwatch()..start();
 
       final tokenStream = generateResponse(

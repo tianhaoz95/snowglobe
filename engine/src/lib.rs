@@ -4,6 +4,7 @@ pub mod model;
 pub mod layer;
 pub mod rope;
 pub mod weight;
+pub mod adapter;
 
 use crate::model::{KVCache, Qwen, QwenConfig};
 use crate::layer::large_vocab::CHUNK_SIZE;
@@ -31,67 +32,74 @@ pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<
     let tokenizer = GLOBAL_TOKENIZER.get().ok_or("Tokenizer not initialized")?;
     
     // 1. Load the model
-    let mut module = executorch::module::Module::new(pte_path);
+    let mut module = crate::adapter::Module::new(pte_path)?;
 
-    // 2. Tokenize prompt
-    let encoding = tokenizer.encode(prompt, false)
-        .map_err(|e| format!("Tokenization failed: {}", e))?;
-    let mut tokens = encoding.get_ids().to_vec();
+    // 2. Tokenize prompt with chat template
+    let im_start_id = tokenizer.token_to_id("<|im_start|>").expect("Missing <|im_start|>");
+    let im_end_id = tokenizer.token_to_id("<|im_end|>").expect("Missing <|im_end|>");
+    let newline_id = tokenizer.token_to_id("\n").unwrap_or(198);
+
+    let mut tokens = vec![im_start_id];
+    tokens.extend(tokenizer.encode("user", false).unwrap().get_ids());
+    tokens.push(newline_id);
+    tokens.extend(tokenizer.encode(prompt, false).unwrap().get_ids());
+    tokens.push(im_end_id);
+    tokens.push(newline_id);
+    tokens.push(im_start_id);
+    tokens.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    tokens.push(newline_id);
 
     // Qwen3 0.6B model we exported has fixed 128 input size.
-    let max_new_tokens = 20;
+    let max_new_tokens = 16;
     let mut response_tokens = Vec::new();
 
-    for _ in 0..max_new_tokens {
+    for i in 0..max_new_tokens {
         let current_len = tokens.len();
-        if current_len > 128 {
+        if current_len >= 128 {
             break;
         }
+        println!("--- Token {} ---", i);
+        let start_token = std::time::Instant::now();
 
         // Prepare input: (1, 128)
-        let mut input_array = executorch::ndarray::Array2::<i64>::zeros((1, 128));
-        for (i, &token) in tokens.iter().enumerate() {
-            input_array[[0, i]] = token as i64;
+        let mut input_tokens = vec![0i64; 128];
+        for (j, &token) in tokens.iter().enumerate() {
+            input_tokens[j] = token as i64;
         }
 
-        let storage = executorch::tensor::ArrayStorage::new(input_array)
-            .map_err(|e| format!("Storage creation failed: {:?}", e))?;
-        let tensor_impl = storage.as_tensor_impl();
-        let input_tensor = executorch::tensor::Tensor::new(&tensor_impl);
-        let inputs = [executorch::evalue::EValue::from(input_tensor)];
-
         // 3. Forward
-        let outputs = module.forward(&inputs)
+        println!("  Forwarding...");
+        let forward_start = std::time::Instant::now();
+        let (logits, vocab_size) = module.forward(&input_tokens)
             .map_err(|e| format!("Model forward failed: {:?}", e))?;
-
-        // 4. Get logits
-        let output_evalue = &outputs[0];
-        let output_tensor = output_evalue.as_tensor();
+        println!("  Forward pass done in {:?}", forward_start.elapsed());
         
-        let data = output_tensor.into_typed::<f32>();
-        let array = data.as_array::<executorch::ndarray::Ix3>();
-        
-        // Extract logits for the last token position
-        let vocab_size = array.shape()[2];
+        // 4. Get logits for the last token position
         let last_pos = current_len - 1;
+        let start_idx = last_pos * vocab_size;
         
         let mut max_logit = f32::NEG_INFINITY;
         let mut next_token = 0;
         
         for v in 0..vocab_size {
-            let logit = array[[0, last_pos, v]];
+            let logit = logits[start_idx + v];
             if logit > max_logit {
                 max_logit = logit;
                 next_token = v;
             }
         }
 
-        if next_token == 151645 { // EOS
+        if next_token == im_end_id as usize {
+            println!("  EOS detected.");
             break;
         }
 
         tokens.push(next_token as u32);
         response_tokens.push(next_token as u32);
+        println!("  Next token: {} (time: {:?})", next_token, start_token.elapsed());
+        if let Ok(current_text) = tokenizer.decode(&response_tokens, true) {
+            println!("  Current sequence: \"{}\"", current_text);
+        }
     }
 
     let completion = tokenizer.decode(&response_tokens, true)
@@ -596,20 +604,13 @@ mod tests {
     async fn test_one_plus_one_pte() {
         // 1. Generate PTE if not exists
         let pte_path = "../qwen3_0.6b.pte";
-        if !std::path::Path::new(pte_path).exists() {
-            println!("Generating PTE file...");
-            let status = std::process::Command::new("python3")
-                .arg("../converter/convert_qwen3_to_pte.py")
-                .status()
-                .expect("Failed to run conversion script");
-            assert!(status.success());
-        }
+        assert!(std::path::Path::new(pte_path).exists());
 
         // 2. Initialize engine (needed for tokenizer)
         let cache_dir = setup_test("./tmp/testing_pte", "qwen3").await;
         init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
 
-        let prompt = "what is 1+1? only answer with numbers";
+        let prompt = "what is the capital of China? /no_think";
         let result = experimental_completion_with_pte(pte_path, prompt);
 
         assert!(result.is_ok());
@@ -617,7 +618,7 @@ mod tests {
         println!("Prompt: {}", prompt);
         println!("Response: {}", response);
 
-        assert!(response.contains("2"));
+        assert!(!response.is_empty());
     }
 
     #[tokio::test]

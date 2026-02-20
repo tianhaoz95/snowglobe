@@ -22,8 +22,6 @@ uuid = { version = "1.8.0", features = ["v4"] }
 tokio = { version = "1", features = ["fs", "macros"] }
 futures-util = "0.3"
 memmap2 = "0.9.9"
-executorch = { version = "0.9.0", features = ["module", "data-loader", "ndarray"] }
-ndarray = "0.16"
 
 [features]
 default = []
@@ -31,3 +29,4 @@ high_perf = ["burn/wgpu", "burn-wgpu"]
 
 [build-dependencies]
 cmake = "0.1.57"
+cc = "1.0"

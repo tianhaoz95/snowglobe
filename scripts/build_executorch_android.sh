@@ -1,0 +1,63 @@
+#!/bin/bash
+set -e
+
+# Path to Android NDK
+ANDROID_NDK=${ANDROID_NDK:-~/Library/Android/sdk/ndk/28.2.13676358}
+# Resolve tilde if present
+ANDROID_NDK="${ANDROID_NDK/#\~/$HOME}"
+
+if [ ! -d "$ANDROID_NDK" ]; then
+    echo "Error: Android NDK not found at $ANDROID_NDK"
+    exit 1
+fi
+
+EXECUTORCH_ROOT="$(pwd)/third_party/executorch"
+OUT_DIR="$(pwd)/executorch-android"
+mkdir -p "$OUT_DIR"
+
+build_abi() {
+    ABI=$1
+    echo "Building ExecuTorch for $ABI..."
+    BUILD_DIR="$EXECUTORCH_ROOT/cmake-android-$ABI"
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+    
+    cmake "$EXECUTORCH_ROOT" 
+        -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" 
+        -DANDROID_ABI="$ABI" 
+        -DANDROID_PLATFORM=android-26 
+        -DCMAKE_BUILD_TYPE=Release 
+        -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON 
+        -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON 
+        -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON 
+        -DEXECUTORCH_BUILD_XNNPACK=ON 
+        -DBUILD_EXECUTORCH_PORTABLE_OPS=ON 
+        -DEXECUTORCH_ENABLE_LOGGING=ON
+        
+    make -j$(sysctl -n hw.ncpu)
+    
+    # Create a unified structure for Rust build script
+    ABI_OUT="$OUT_DIR/$ABI"
+    mkdir -p "$ABI_OUT"
+    find . -name "*.a" -exec cp {} "$ABI_OUT/" \;
+    
+    # Mirror subdirectory structure for backends/kernels if needed by build.rs
+    mkdir -p "$ABI_OUT/backends/xnnpack/third-party/XNNPACK"
+    cp backends/xnnpack/libxnnpack_backend.a "$ABI_OUT/backends/xnnpack/" || true
+    cp backends/xnnpack/third-party/XNNPACK/libXNNPACK.a "$ABI_OUT/backends/xnnpack/third-party/XNNPACK/" || true
+    cp backends/xnnpack/third-party/XNNPACK/libxnnpack-microkernels-prod.a "$ABI_OUT/backends/xnnpack/third-party/XNNPACK/" || true
+    
+    mkdir -p "$ABI_OUT/kernels/portable"
+    cp kernels/portable/libportable_kernels.a "$ABI_OUT/kernels/portable/" || true
+    cp kernels/portable/libportable_ops_lib.a "$ABI_OUT/kernels/portable/" || true
+    
+    echo "Done building for $ABI"
+}
+
+build_abi "arm64-v8a"
+build_abi "x86_64"
+
+echo "Android ExecuTorch libraries built in $OUT_DIR"
+echo "To build the Flutter app, run:"
+echo "export EXECUTORCH_RS_EXECUTORCH_LIB_DIR=$OUT_DIR"
+echo "cd demo && flutter run"

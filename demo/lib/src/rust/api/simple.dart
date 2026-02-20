@@ -31,6 +31,14 @@ Stream<String> generateResponse({
   prompt: prompt,
 );
 
+Future<String> experimentalCompletionWithPte({
+  required String ptePath,
+  required String prompt,
+}) => RustLib.instance.api.crateApiSimpleExperimentalCompletionWithPte(
+  ptePath: ptePath,
+  prompt: prompt,
+);
+
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
