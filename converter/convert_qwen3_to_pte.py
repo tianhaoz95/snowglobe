@@ -9,6 +9,7 @@ import json
 import os
 from executorch.exir import EdgeCompileConfig, to_edge
 from torch.export import export
+from executorch.backends.apple.mps.partition import MPSPartitioner
 
 from transformers import AutoTokenizer
 
@@ -89,10 +90,9 @@ class Qwen3Attention(nn.Module):
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
         
-        # Causal mask
-        mask = torch.full((q_len, q_len), float("-inf"), device=hidden_states.device)
-        mask = torch.triu(mask, diagonal=1)
-        attn_weights = attn_weights + mask
+        # Causal mask (Additive approach is more stable for MPS backend)
+        mask = torch.triu(torch.ones(q_len, q_len, device=hidden_states.device), diagonal=1)
+        attn_weights = attn_weights - (mask * 1e4)
 
         attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         attn_output = torch.matmul(attn_weights, value_states)
@@ -212,6 +212,12 @@ def main():
 
     # 2. Lower to Edge
     edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=False))
+
+    # 2.1 Partition for MPS (Metal)
+    # MPS backend currently has type-matching issues with causal masks in some environments.
+    # Disabling by default to ensure reliability on CPU/XNNPACK.
+    # print("Partitioning for MPS...")
+    # edge_program = edge_program.to_backend(MPSPartitioner([]))
 
     # 3. Export to PTE
     pte_filename = "qwen3_0.6b.pte"

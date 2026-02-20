@@ -21,6 +21,85 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
+/// Generates a completion using an ExecuTorch .pte model.
+/// 
+/// Note: This function requires the ExecuTorch C++ static libraries to be present in the 
+/// path specified by the `EXECUTORCH_RS_EXECUTORCH_LIB_DIR` environment variable during build.
+/// To avoid ABI mismatches (like [abi:ne200100] on macOS), ensure that ExecuTorch is built 
+/// with the same SDK and compiler flags as the Rust engine.
+pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<String, String> {
+    let tokenizer = GLOBAL_TOKENIZER.get().ok_or("Tokenizer not initialized")?;
+    
+    // 1. Load the model
+    let mut module = executorch::module::Module::new(pte_path);
+
+    // 2. Tokenize prompt
+    let encoding = tokenizer.encode(prompt, false)
+        .map_err(|e| format!("Tokenization failed: {}", e))?;
+    let mut tokens = encoding.get_ids().to_vec();
+
+    // Qwen3 0.6B model we exported has fixed 128 input size.
+    let max_new_tokens = 20;
+    let mut response_tokens = Vec::new();
+
+    for _ in 0..max_new_tokens {
+        let current_len = tokens.len();
+        if current_len > 128 {
+            break;
+        }
+
+        // Prepare input: (1, 128)
+        let mut input_array = executorch::ndarray::Array2::<i64>::zeros((1, 128));
+        for (i, &token) in tokens.iter().enumerate() {
+            input_array[[0, i]] = token as i64;
+        }
+
+        let storage = executorch::tensor::ArrayStorage::new(input_array)
+            .map_err(|e| format!("Storage creation failed: {:?}", e))?;
+        let tensor_impl = storage.as_tensor_impl();
+        let input_tensor = executorch::tensor::Tensor::new(&tensor_impl);
+        let inputs = [executorch::evalue::EValue::from(input_tensor)];
+
+        // 3. Forward
+        let outputs = module.forward(&inputs)
+            .map_err(|e| format!("Model forward failed: {:?}", e))?;
+
+        // 4. Get logits
+        let output_evalue = &outputs[0];
+        let output_tensor = output_evalue.as_tensor();
+        
+        let data = output_tensor.into_typed::<f32>();
+        let array = data.as_array::<executorch::ndarray::Ix3>();
+        
+        // Extract logits for the last token position
+        let vocab_size = array.shape()[2];
+        let last_pos = current_len - 1;
+        
+        let mut max_logit = f32::NEG_INFINITY;
+        let mut next_token = 0;
+        
+        for v in 0..vocab_size {
+            let logit = array[[0, last_pos, v]];
+            if logit > max_logit {
+                max_logit = logit;
+                next_token = v;
+            }
+        }
+
+        if next_token == 151645 { // EOS
+            break;
+        }
+
+        tokens.push(next_token as u32);
+        response_tokens.push(next_token as u32);
+    }
+
+    let completion = tokenizer.decode(&response_tokens, true)
+        .map_err(|e| format!("Decoding failed: {}", e))?;
+    
+    Ok(completion)
+}
+
 #[cfg(feature = "high_perf")]
 pub mod backend_setup {
     use burn::backend::Wgpu;
@@ -511,6 +590,34 @@ mod tests {
             download_qwen2_5_0_5b_instruct(cache_dir.to_string()).await;
         }
         cache_dir.to_string()
+    }
+
+    #[tokio::test]
+    async fn test_one_plus_one_pte() {
+        // 1. Generate PTE if not exists
+        let pte_path = "../qwen3_0.6b.pte";
+        if !std::path::Path::new(pte_path).exists() {
+            println!("Generating PTE file...");
+            let status = std::process::Command::new("python3")
+                .arg("../converter/convert_qwen3_to_pte.py")
+                .status()
+                .expect("Failed to run conversion script");
+            assert!(status.success());
+        }
+
+        // 2. Initialize engine (needed for tokenizer)
+        let cache_dir = setup_test("./tmp/testing_pte", "qwen3").await;
+        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+
+        let prompt = "what is 1+1? only answer with numbers";
+        let result = experimental_completion_with_pte(pte_path, prompt);
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert!(response.contains("2"));
     }
 
     #[tokio::test]
