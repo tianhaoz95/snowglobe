@@ -8,8 +8,9 @@ unsafe extern "C" {
     fn executorch_module_destroy(module: *mut ExecuTorchModuleOpaque);
     fn executorch_module_forward(
         module: *mut ExecuTorchModuleOpaque,
-        input_tokens: *const i64,
+        input_tokens: *const c_void,
         input_len: usize,
+        use_int32: i32,
         output_logits: *mut f32,
         output_vocab_size: *mut usize,
     ) -> i32;
@@ -29,18 +30,27 @@ impl Module {
         Ok(Self { ptr })
     }
 
-    pub fn forward(&mut self, tokens: &[i64]) -> Result<(Vec<f32>, usize), String> {
-        // Output size is (1, 128, vocab_size). 
-        // We don't know vocab_size beforehand, but we can guess or use a large enough buffer.
-        // Qwen3 vocab size is around 152064.
+    /// Run inference with the module.
+    ///
+    /// Tokens must be either `&[i32]` or `&[i64]`, depending on the exported model's expected type.
+    pub fn forward<T: 'static>(&mut self, tokens: &[T]) -> Result<(Vec<f32>, usize), String> {
+        let use_int32 = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() {
+            1
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i64>() {
+            0
+        } else {
+            return Err("Unsupported token ID type. Use i32 or i64.".to_string());
+        };
+
         let mut vocab_size = 0;
         let mut output_logits = vec![0.0f32; 128 * 152064]; 
         
         let status = unsafe {
             executorch_module_forward(
                 self.ptr,
-                tokens.as_ptr(),
+                tokens.as_ptr() as *const c_void,
                 tokens.len(),
+                use_int32,
                 output_logits.as_mut_ptr(),
                 &mut vocab_size,
             )

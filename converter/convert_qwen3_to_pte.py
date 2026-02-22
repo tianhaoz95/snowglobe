@@ -1,3 +1,12 @@
+import logging
+import torch._logging
+
+# 1. Tell PyTorch's internal C++ / Dynamo engine to shut up
+torch._logging.set_logs(all=logging.ERROR)
+
+# 2. Blanket disable for any rogue Python loggers
+logging.disable(logging.CRITICAL)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +18,7 @@ import json
 import os
 from executorch.exir import EdgeCompileConfig, to_edge
 from torch.export import export
-from executorch.backends.apple.mps.partition import MPSPartitioner
+from executorch.backends.apple.mps.partition.mps_partitioner import MPSPartitioner, CompileSpec as MPSCompileSpec
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
 
 from transformers import AutoTokenizer
@@ -22,10 +31,11 @@ class Qwen3RMSNorm(nn.Module):
 
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+        # Use float32 for stable variance calculation - REQUIRED for quality
+        hidden_states_fp32 = hidden_states.to(torch.float32)
+        variance = (hidden_states_fp32 * hidden_states_fp32).mean(-1, keepdim=True)
+        hidden_states_fp32 = hidden_states_fp32 * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states_fp32.to(input_dtype)
 
 class Qwen3RotaryEmbedding(nn.Module):
     def __init__(self, dim, max_position_embeddings=40960, base=1000000):
@@ -35,17 +45,27 @@ class Qwen3RotaryEmbedding(nn.Module):
         self.base = base
         inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2).float() / self.dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
+        
+        # Precompute cos/sin for fixed 128 sequence length
+        t = torch.arange(128, dtype=torch.float32)
+        freqs = torch.einsum("i,j->ij", t, inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        # Register as float32 buffers to avoid alignment issues
+        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
 
     def forward(self, x, seq_len=None):
-        t = torch.arange(seq_len, device=x.device, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
-        return emb.cos()[None, None, :, :], emb.sin()[None, None, :, :]
+        # Use precomputed buffers
+        return self.cos_cached[:, :, :seq_len, :].to(x.dtype), self.sin_cached[:, :, :seq_len, :].to(x.dtype)
 
 def rotate_half(x):
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+    # Use chunk instead of manual slicing for better delegate compatibility
+    # Flatten to 2D temporarily to avoid 4D slice bugs in some MPS delegate versions
+    shape = x.shape
+    x_flat = x.reshape(-1, shape[-1])
+    x1, x2 = x_flat.chunk(2, dim=-1)
+    res = torch.cat((-x2, x1), dim=-1)
+    return res.reshape(shape)
 
 def apply_rotary_pos_emb(q, k, cos, sin):
     q_embed = (q * cos) + (rotate_half(q) * sin)
@@ -72,12 +92,17 @@ class Qwen3Attention(nn.Module):
 
         self.rotary_emb = Qwen3RotaryEmbedding(self.head_dim, config["max_position_embeddings"], config["rope_theta"])
 
+        # Precompute causal mask for testing (reduced to 128)
+        mask = torch.triu(torch.ones(128, 128), diagonal=1)
+        # Use float32 explicitly for the mask to avoid alignment issues in MPS
+        self.register_buffer("causal_mask", (mask * -10000.0).to(torch.float32), persistent=False)
+
     def forward(self, hidden_states, cos, sin):
         bsz, q_len, _ = hidden_states.size()
 
-        query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).permute(0, 2, 1, 3)
+        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).permute(0, 2, 1, 3)
 
         # Apply QK Norm
         query_states = self.q_norm(query_states)
@@ -86,19 +111,26 @@ class Qwen3Attention(nn.Module):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         # Repeat K/V for GQA
-        key_states = key_states.repeat_interleave(self.num_key_value_groups, dim=1)
-        value_states = value_states.repeat_interleave(self.num_key_value_groups, dim=1)
+        if self.num_key_value_groups > 1:
+            key_states = key_states[:, :, None, :, :].expand(-1, -1, self.num_key_value_groups, -1, -1).reshape(bsz, self.num_heads, q_len, self.head_dim)
+            value_states = value_states[:, :, None, :, :].expand(-1, -1, self.num_key_value_groups, -1, -1).reshape(bsz, self.num_heads, q_len, self.head_dim)
 
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+        # Use 3D bmm for better delegate compatibility by flattening head into batch
+        q = query_states.reshape(-1, q_len, self.head_dim)
+        k = key_states.reshape(-1, q_len, self.head_dim).transpose(1, 2)
+        attn_weights = torch.bmm(q, k) * (1.0 / math.sqrt(self.head_dim))
         
-        # Causal mask (Additive approach is more stable for MPS backend)
-        mask = torch.triu(torch.ones(q_len, q_len, device=hidden_states.device), diagonal=1)
-        attn_weights = attn_weights - (mask * 1e4)
+        # Additive causal mask in float32 for stability
+        mask = self.causal_mask[:q_len, :q_len]
+        attn_weights = attn_weights.to(torch.float32) + mask
 
-        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_output = torch.matmul(attn_weights, value_states)
+        # Softmax in float32 for stability
+        attn_weights = F.softmax(attn_weights, dim=-1).to(query_states.dtype)
+        
+        v = value_states.reshape(-1, q_len, self.head_dim)
+        attn_output = torch.bmm(attn_weights, v)
 
-        attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, q_len, self.num_heads * self.head_dim)
+        attn_output = attn_output.view(bsz, self.num_heads, q_len, self.head_dim).permute(0, 2, 1, 3).contiguous().view(bsz, q_len, -1)
         return self.o_proj(attn_output)
 
 class Qwen3MLP(nn.Module):
@@ -161,9 +193,16 @@ class Qwen3ForCausalLM(nn.Module):
 
     def forward(self, input_ids):
         hidden_states = self.model(input_ids)
-        return self.lm_head(hidden_states)
+        logits = self.lm_head(hidden_states)
+        # Cast back to float32 for the output to match our C++ adapter's expectation
+        return logits.to(torch.float32)
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", type=str, choices=["mps", "xnnpack"], default="mps")
+    args = parser.parse_args()
+
     repo_id = "Qwen/Qwen3-0.6B"
     config_path = hf_hub_download(repo_id, "config.json")
     with open(config_path, "r") as f:
@@ -174,12 +213,14 @@ def main():
     state_dict = load_file(model_path)
 
     print("Initializing model...")
-    model = Qwen3ForCausalLM(config).to(torch.float32)
+    # Use float16 for MPS to avoid type mismatches and improve performance
+    model_dtype = torch.float16 if args.backend == "mps" else torch.float32
+    model = Qwen3ForCausalLM(config).to(model_dtype)
     # Fix keys if necessary (Safetensors usually match but sometimes there's a prefix)
     model.load_state_dict(state_dict, strict=True)
     model.eval()
 
-    print("Running generation test...")
+    print(f"Running generation test ({model_dtype})...")
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     prompt = "What is the capital of China?"
     input_ids = tokenizer(prompt, return_tensors="pt").input_ids
@@ -203,23 +244,48 @@ def main():
     assert "beijing" in response.lower(), f"Expected 'beijing' in response, but got: {response}"
     print("Test passed!")
 
-    print("Exporting to PTE...")
+    print(f"Exporting to PTE with backend: {args.backend}...")
     # Example input
-    example_input = torch.randint(0, config["vocab_size"], (1, 128))
+    # Use 128 for seq_len as per engine expectation
+    example_input = torch.randint(0, config["vocab_size"], (1, 128), dtype=torch.int32 if args.backend == "mps" else torch.int64)
     
     # 1. Export the model
     with torch.no_grad():
         exported_model = export(model, (example_input,))
 
     # 2. Lower to Edge
-    edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=False))
+    edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=True))
 
-    # 2.1 Partition for MPS (Metal)
-    # MPS backend currently has type-matching issues with causal masks in some environments.
-    # Disabling by default to ensure reliability on CPU/XNNPACK.
-    # print("Partitioning for MPS...")
-    # edge_program = edge_program.to_backend(MPSPartitioner([]))
-    edge_program = edge_program.to_backend(XnnpackPartitioner())
+    if args.backend == "mps":
+        print("Partitioning for MPS...")
+        edge_program = edge_program.to_backend(MPSPartitioner([]))
+    else:
+        print("Partitioning for XNNPACK...")
+        edge_program = edge_program.to_backend(XnnpackPartitioner())
+
+    print("\nAnalyzing delegation success...")
+    delegated_nodes = 0
+    fallback_nodes = {}
+    for node in edge_program.exported_program().graph_module.graph.nodes:
+        if node.op == "call_function":
+            # Check if it was successfully delegated
+            if "executorch_call_delegate" in str(node.target):
+                delegated_nodes += 1
+            # If it has an 'aten.' prefix, the backend rejected it
+            elif "aten." in str(node.target):
+                op_name = str(node.target)
+                fallback_nodes[op_name] = fallback_nodes.get(op_name, 0) + 1
+
+    print(f"\n--- DELEGATION SUMMARY ---")
+    print(f"✅ Successfully delegated nodes: {delegated_nodes}")
+    print(f"❌ Fallback CPU nodes: {sum(fallback_nodes.values())}")
+
+    if fallback_nodes:
+        print("\nTop rejected operations causing the slowdown:")
+        # Print the top 10 most common rejected nodes
+        for op, count in sorted(fallback_nodes.items(), key=lambda x: x[1], reverse=True)[:10]:
+            print(f"  - {op}: {count} times")
+    print("--------------------------\n")
 
     # 3. Export to PTE
     pte_filename = "qwen3_0.6b.pte"

@@ -16,8 +16,9 @@ void executorch_module_destroy(ExecuTorchModule* module);
 // and output is (1, 128, vocab_size)
 int32_t executorch_module_forward(
     ExecuTorchModule* module,
-    const int64_t* input_tokens,
+    const void* input_tokens,
     size_t input_len,
+    int32_t use_int32,
     float* output_logits,
     size_t* output_vocab_size
 );

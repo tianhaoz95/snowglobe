@@ -1,5 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=EXECUTORCH_RS_EXECUTORCH_LIB_DIR");
+    println!("cargo:rerun-if-changed=src/adapter/executorch_adapter.cpp");
+    println!("cargo:rerun-if-changed=src/adapter/executorch_adapter.h");
     if let Ok(libs_dir) = std::env::var("EXECUTORCH_RS_EXECUTORCH_LIB_DIR") {
         let target = std::env::var("TARGET").unwrap_or_default();
         let libs_path = std::path::Path::new(&libs_dir);

@@ -27,6 +27,31 @@ cargo test tests::test_one_plus_one --features high_perf -- --nocapture
 cargo test tests::test_one_plus_one_qwen3 --features high_perf -- --nocapture
 # Test sharding
 cargo test tests::test_sharded_one_plus_one --features high_perf -- --nocapture
+
+### ExecuTorch (Experimental)
+To run inference using ExecuTorch `.pte` models:
+
+1. **Export the model**:
+   ```bash
+   # For MPS (Fastest on Mac)
+   python converter/convert_qwen3_to_pte.py --backend mps
+   # For XNNPACK (Standard CPU)
+   python converter/convert_qwen3_to_pte.py --backend xnnpack
+   ```
+
+2. **Run the test**:
+   ```bash
+   cd engine
+   export EXECUTORCH_RS_EXECUTORCH_LIB_DIR=~/github/snowglobe/third_party/executorch/cmake-out
+   
+   # For MPS
+   export EXECUTORCH_USE_MPS=1
+   cargo test tests::test_one_plus_one_pte --release -- --nocapture
+   
+   # For XNNPACK
+   unset EXECUTORCH_USE_MPS
+   cargo test tests::test_one_plus_one_pte --release -- --nocapture
+   ```
 ```
 
 ## Tech Stack

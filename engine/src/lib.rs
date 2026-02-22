@@ -53,6 +53,10 @@ pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<
     let max_new_tokens = 16;
     let mut response_tokens = Vec::new();
 
+    // Use environment variable to decide if we use i32 or i64 tokens.
+    // MPS backend usually requires i32 for consistency with the causal mask in our script.
+    let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
+
     for i in 0..max_new_tokens {
         let current_len = tokens.len();
         if current_len >= 128 {
@@ -61,17 +65,24 @@ pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<
         println!("--- Token {} ---", i);
         let start_token = std::time::Instant::now();
 
-        // Prepare input: (1, 128)
-        let mut input_tokens = vec![0i64; 128];
-        for (j, &token) in tokens.iter().enumerate() {
-            input_tokens[j] = token as i64;
-        }
-
         // 3. Forward
-        println!("  Forwarding...");
+        println!("  Forwarding (use_mps: {})...", use_mps);
         let forward_start = std::time::Instant::now();
-        let (logits, vocab_size) = module.forward(&input_tokens)
-            .map_err(|e| format!("Model forward failed: {:?}", e))?;
+        
+        let (logits, vocab_size) = if use_mps {
+            let mut input_tokens = vec![0i32; 128];
+            for (j, &token) in tokens.iter().enumerate() {
+                input_tokens[j] = token as i32;
+            }
+            module.forward(&input_tokens)
+        } else {
+            let mut input_tokens = vec![0i64; 128];
+            for (j, &token) in tokens.iter().enumerate() {
+                input_tokens[j] = token as i64;
+            }
+            module.forward(&input_tokens)
+        }.map_err(|e| format!("Model forward failed: {:?}", e))?;
+        
         println!("  Forward pass done in {:?}", forward_start.elapsed());
         
         // 4. Get logits for the last token position
@@ -81,6 +92,7 @@ pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<
         let mut max_logit = f32::NEG_INFINITY;
         let mut next_token = 0;
         
+        println!("  Calculating next token...");
         for v in 0..vocab_size {
             let logit = logits[start_idx + v];
             if logit > max_logit {
@@ -88,6 +100,7 @@ pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<
                 next_token = v;
             }
         }
+        println!("  Next token calculated...");
 
         if next_token == im_end_id as usize {
             println!("  EOS detected.");
