@@ -101,20 +101,11 @@ pub fn check_backend() -> String {
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
 pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
-    let config_path = Path::new(&cache_dir).join("config.json");
-    let mut config = if config_path.exists() {
-        let config_str = std::fs::read_to_string(config_path).expect("Failed to read config.json");
-        serde_json::from_str::<QwenConfig>(&config_str).expect("Failed to parse config.json")
-    } else {
-        QwenConfig::default()
-    };
+    let device = init_platform().await;
+    init_model(cache_dir, init_config, device).await
+}
 
-    if init_config.vocab_shards != 0 {
-        config.vocab_shards = init_config.vocab_shards;
-    } else if config.vocab_shards == 0 {
-        config.vocab_shards = (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    }
-
+async fn init_platform() -> Device {
     // 1. Initialize Device based on Feature
     #[cfg(feature = "high_perf")]
     let device = burn::backend::wgpu::WgpuDevice::DefaultDevice;
@@ -132,6 +123,24 @@ pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
             .await;
             let _ = GPU_SETUP.set(());
         }
+    }
+
+    device
+}
+
+async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) -> String {
+    let config_path = Path::new(&cache_dir).join("config.json");
+    let mut config = if config_path.exists() {
+        let config_str = std::fs::read_to_string(config_path).expect("Failed to read config.json");
+        serde_json::from_str::<QwenConfig>(&config_str).expect("Failed to parse config.json")
+    } else {
+        QwenConfig::default()
+    };
+
+    if init_config.vocab_shards != 0 {
+        config.vocab_shards = init_config.vocab_shards;
+    } else if config.vocab_shards == 0 {
+        config.vocab_shards = (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
     }
 
     let mut model: Qwen<Backend> = config.init(&device);

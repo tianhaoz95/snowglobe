@@ -17,16 +17,19 @@ The project follows a hybrid architecture combining a high-performance Rust core
 
 ## Development & Testing
 
-When making changes to the Rust **engine**, verify the implementation using the following commands (requires high-performance features enabled):
+When making changes to the Rust **engine**, verify the implementation using the following commands:
 
 ```bash
 # In the engine/ directory
-# Test Qwen 2.5
-cargo test tests::test_one_plus_one --features high_perf -- --nocapture
-# Test Qwen 3
+
+# 1. Verify Qwen 3 (Burn backend)
 cargo test tests::test_one_plus_one_qwen3 --features high_perf -- --nocapture
-# Test sharding
-cargo test tests::test_sharded_one_plus_one --features high_perf -- --nocapture
+
+# 2. Verify ExecuTorch implementation (MPS on Mac)
+EXECUTORCH_USE_MPS=1 \
+EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
+cargo test tests::test_one_plus_one_pte --release -- --nocapture
+```
 
 ### ExecuTorch (Experimental)
 To run inference using ExecuTorch `.pte` models:
@@ -42,14 +45,15 @@ To run inference using ExecuTorch `.pte` models:
 2. **Run the test**:
    ```bash
    cd engine
-   export EXECUTORCH_RS_EXECUTORCH_LIB_DIR=~/github/snowglobe/third_party/executorch/cmake-out
    
-   # For MPS
-   export EXECUTORCH_USE_MPS=1
+   # For MPS (Mac)
+   EXECUTORCH_USE_MPS=1 \
+   EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
    cargo test tests::test_one_plus_one_pte --release -- --nocapture
    
-   # For XNNPACK
+   # For XNNPACK (CPU)
    unset EXECUTORCH_USE_MPS
+   EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
    cargo test tests::test_one_plus_one_pte --release -- --nocapture
    ```
 ```
