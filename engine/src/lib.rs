@@ -29,7 +29,7 @@ use uuid::Uuid;
 /// To avoid ABI mismatches (like [abi:ne200100] on macOS), ensure that ExecuTorch is built
 /// with the same SDK and compiler flags as the Rust engine.
 pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<String, String> {
-    let mut model = QwenPte::new(pte_path)?;
+    let model = QwenPte::<Backend>::new(pte_path)?;
     model.generate(prompt, 16)
 }
 
