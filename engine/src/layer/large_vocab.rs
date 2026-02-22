@@ -3,9 +3,9 @@ use burn::{
     nn::{Embedding, EmbeddingConfig, Linear, LinearConfig},
     tensor::{Int, Shape, Tensor, TensorData, backend::Backend},
 };
-use safetensors::{Dtype, tensor::TensorView};
 use bytemuck;
-use half::{f16, bf16};
+use half::{bf16, f16};
+use safetensors::{Dtype, tensor::TensorView};
 
 pub const CHUNK_SIZE: usize = 32000;
 
@@ -92,7 +92,12 @@ pub struct LargeVocabEmbedding<B: Backend> {
 }
 
 impl<B: Backend> LargeVocabEmbedding<B> {
-    pub fn init(vocab_size: usize, hidden_size: usize, num_chunks: usize, device: &B::Device) -> Self {
+    pub fn init(
+        vocab_size: usize,
+        hidden_size: usize,
+        num_chunks: usize,
+        device: &B::Device,
+    ) -> Self {
         let chunk_size = (vocab_size + num_chunks - 1) / num_chunks;
         let mut parts = Vec::with_capacity(num_chunks);
         for i in 0..num_chunks {
@@ -100,7 +105,11 @@ impl<B: Backend> LargeVocabEmbedding<B> {
             let end = (start + chunk_size).min(vocab_size);
             parts.push(EmbeddingConfig::new(end - start, hidden_size).init(device));
         }
-        Self { parts, vocab_size, chunk_size }
+        Self {
+            parts,
+            vocab_size,
+            chunk_size,
+        }
     }
 
     pub fn load_weights(
@@ -127,9 +136,11 @@ impl<B: Backend> LargeVocabEmbedding<B> {
             let end = ((i + 1) * self.chunk_size).min(self.vocab_size) as i32;
             let current_chunk_size = end - start;
 
-            let mask = input.clone().greater_equal_elem(start)
+            let mask = input
+                .clone()
+                .greater_equal_elem(start)
                 .bool_and(input.clone().lower_equal_elem(end - 1));
-            
+
             let clamped_input = (input.clone() - start).clamp(0, current_chunk_size - 1);
             let out = part.forward(clamped_input);
             let masked_out = out.mask_fill(mask.bool_not().unsqueeze_dim(2), 0.0);
@@ -153,7 +164,12 @@ pub struct LargeVocabLinear<B: Backend> {
 }
 
 impl<B: Backend> LargeVocabLinear<B> {
-    pub fn init(hidden_size: usize, vocab_size: usize, num_chunks: usize, device: &B::Device) -> Self {
+    pub fn init(
+        hidden_size: usize,
+        vocab_size: usize,
+        num_chunks: usize,
+        device: &B::Device,
+    ) -> Self {
         let chunk_size = (vocab_size + num_chunks - 1) / num_chunks;
         let mut parts = Vec::with_capacity(num_chunks);
         for i in 0..num_chunks {
@@ -161,7 +177,11 @@ impl<B: Backend> LargeVocabLinear<B> {
             let end = (start + chunk_size).min(vocab_size);
             parts.push(LinearConfig::new(hidden_size, end - start).init(device));
         }
-        Self { parts, vocab_size, chunk_size }
+        Self {
+            parts,
+            vocab_size,
+            chunk_size,
+        }
     }
 
     pub fn load_weights(
@@ -177,7 +197,8 @@ impl<B: Backend> LargeVocabLinear<B> {
         for (i, part_record) in record.parts.iter_mut().enumerate() {
             let start = i * chunk_size;
             let end = (start + chunk_size).min(vocab_size);
-            part_record.weight = load_tensor_2d_range(view, start..end, hidden_size, device, transpose);
+            part_record.weight =
+                load_tensor_2d_range(view, start..end, hidden_size, device, transpose);
         }
     }
 
@@ -185,27 +206,35 @@ impl<B: Backend> LargeVocabLinear<B> {
         record: &mut LargeVocabLinearRecord<B>,
         embedding_record: &LargeVocabEmbeddingRecord<B>,
     ) {
-        for (part_record, emb_part_record) in record.parts.iter_mut().zip(embedding_record.parts.iter()) {
+        for (part_record, emb_part_record) in
+            record.parts.iter_mut().zip(embedding_record.parts.iter())
+        {
             part_record.weight = Param::from_tensor(emb_part_record.weight.val().transpose());
         }
     }
 
     pub fn from_embedding(embedding: &LargeVocabEmbedding<B>) -> Self {
-        let parts = embedding.parts.iter().map(|emb| {
-            Linear {
+        let parts = embedding
+            .parts
+            .iter()
+            .map(|emb| Linear {
                 weight: Param::from_tensor(emb.weight.clone().val().transpose()),
                 bias: None,
-            }
-        }).collect();
-        Self { 
-            parts, 
+            })
+            .collect();
+        Self {
+            parts,
             vocab_size: embedding.vocab_size,
             chunk_size: embedding.chunk_size,
         }
     }
 
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let outs: Vec<_> = self.parts.iter().map(|part| part.forward(input.clone())).collect();
+        let outs: Vec<_> = self
+            .parts
+            .iter()
+            .map(|part| part.forward(input.clone()))
+            .collect();
         Tensor::cat(outs, 2)
     }
 }

@@ -8,7 +8,10 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
         .await
         .map_err(|e| format!("Download failed: {}", e))?;
     if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
+        return Err(format!(
+            "Download failed with status: {}",
+            response.status()
+        ));
     }
     let mut stream = response.bytes_stream();
     let mut file = File::create(path)
@@ -28,8 +31,7 @@ pub async fn download_qwen2_5_0_5b_instruct(cache_dir: String) -> String {
         "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors";
     let tokenizer_url =
         "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
-    let config_url =
-        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json";
+    let config_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json";
     download_model(
         cache_dir,
         model_url.to_string(),

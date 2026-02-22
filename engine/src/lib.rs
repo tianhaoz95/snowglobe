@@ -1,18 +1,16 @@
 #![recursion_limit = "256"]
 
-pub mod model;
-pub mod layer;
-pub mod rope;
-pub mod weight;
 pub mod adapter;
+pub mod layer;
+pub mod model;
+pub mod rope;
 pub mod utils;
+pub mod weight;
 
-pub use utils::downloader::{
-    download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b,
-};
+pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b};
 
-use crate::model::{KVCache, Model, Qwen, QwenConfig, QwenPte};
 use crate::layer::large_vocab::CHUNK_SIZE;
+use crate::model::{KVCache, Model, Qwen, QwenConfig, QwenPte};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
@@ -25,10 +23,10 @@ use tokenizers::Tokenizer;
 use uuid::Uuid;
 
 /// Generates a completion using an ExecuTorch .pte model.
-/// 
-/// Note: This function requires the ExecuTorch C++ static libraries to be present in the 
+///
+/// Note: This function requires the ExecuTorch C++ static libraries to be present in the
 /// path specified by the `EXECUTORCH_RS_EXECUTORCH_LIB_DIR` environment variable during build.
-/// To avoid ABI mismatches (like [abi:ne200100] on macOS), ensure that ExecuTorch is built 
+/// To avoid ABI mismatches (like [abi:ne200100] on macOS), ensure that ExecuTorch is built
 /// with the same SDK and compiler flags as the Rust engine.
 pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<String, String> {
     let mut model = QwenPte::new(pte_path)?;
@@ -176,7 +174,9 @@ pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
 
 pub fn init_session() -> String {
     let session_id = Uuid::new_v4().to_string();
-    let tokenizer = GLOBAL_TOKENIZER.get().expect("Global tokenizer not initialized. Call init first.");
+    let tokenizer = GLOBAL_TOKENIZER
+        .get()
+        .expect("Global tokenizer not initialized. Call init first.");
     let mut token_ids = Vec::new();
     let im_start_id = tokenizer
         .token_to_id("<|im_start|>")
@@ -225,13 +225,26 @@ pub fn generate_response<S>(session_id: &str, prompt: &str, sink: S) -> Result<(
 where
     S: StreamSink<String>,
 {
-    let tokenizer = GLOBAL_TOKENIZER.get().expect("Global tokenizer not initialized.");
-    let model_config = GLOBAL_MODEL_CONFIG.get().expect("Global model config not initialized.");
-    let init_config = GLOBAL_INIT_CONFIG.get().expect("Global init config not initialized.");
+    let tokenizer = GLOBAL_TOKENIZER
+        .get()
+        .expect("Global tokenizer not initialized.");
+    let model_config = GLOBAL_MODEL_CONFIG
+        .get()
+        .expect("Global model config not initialized.");
+    let init_config = GLOBAL_INIT_CONFIG
+        .get()
+        .expect("Global init config not initialized.");
     let device = GLOBAL_DEVICE.get().expect("Global device not initialized.");
-    let model = GLOBAL_MODEL.get().expect("Global model not initialized.").lock();
+    let model = GLOBAL_MODEL
+        .get()
+        .expect("Global model not initialized.")
+        .lock();
 
-    let mut session_state = SESSIONS.get().expect("SESSIONS not initialized.").get_mut(session_id).unwrap();
+    let mut session_state = SESSIONS
+        .get()
+        .expect("SESSIONS not initialized.")
+        .get_mut(session_id)
+        .unwrap();
 
     let im_start_id = tokenizer
         .token_to_id("<|im_start|>")
@@ -244,25 +257,32 @@ where
     let user_tokens = tokenizer.encode(prompt, false).unwrap().get_ids().to_vec();
 
     session_state.tokens.push(im_start_id);
-    session_state.tokens.extend(tokenizer.encode("user", false).unwrap().get_ids());
+    session_state
+        .tokens
+        .extend(tokenizer.encode("user", false).unwrap().get_ids());
     session_state.tokens.push(newline_id);
     session_state.tokens.extend(user_tokens);
     session_state.tokens.push(im_end_id);
     session_state.tokens.push(newline_id);
     session_state.tokens.push(im_start_id);
-    session_state.tokens.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    session_state
+        .tokens
+        .extend(tokenizer.encode("assistant", false).unwrap().get_ids());
     session_state.tokens.push(newline_id);
 
     for _ in 0..init_config.max_gen_len {
         // 1. Process all pending tokens
         let num_pending = session_state.tokens.len() - session_state.offset;
         if num_pending == 0 {
-             break;
+            break;
         }
 
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(
-                session_state.tokens[session_state.offset..].iter().map(|&x| x as i32).collect::<Vec<_>>(),
+                session_state.tokens[session_state.offset..]
+                    .iter()
+                    .map(|&x| x as i32)
+                    .collect::<Vec<_>>(),
                 Shape::new([1, num_pending]),
             ),
             device,
@@ -270,8 +290,11 @@ where
 
         let (output, new_cache) = model.forward(
             input_tensor,
-            session_state.cache.clone().map(|c| c.into_iter().map(Some).collect()),
-            session_state.offset
+            session_state
+                .cache
+                .clone()
+                .map(|c| c.into_iter().map(Some).collect()),
+            session_state.offset,
         );
 
         session_state.cache = Some(new_cache);
@@ -317,7 +340,14 @@ mod tests {
     #[tokio::test]
     async fn test_kv_cache_latency_comparison() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+            },
+        )
+        .await;
 
         let tokenizer = GLOBAL_TOKENIZER.get().unwrap();
         let model = GLOBAL_MODEL.get().unwrap().lock();
@@ -405,23 +435,30 @@ mod tests {
     #[tokio::test]
     async fn test_multi_turn() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+            },
+        )
+        .await;
         let session_id = init_session();
-        
+
         // Turn 1
         let prompt1 = "My name is Alice. Remember that.";
         let sink1 = TestSink(Mutex::new(String::new()));
         generate_response(&session_id, prompt1, &sink1).unwrap();
-        
+
         // Turn 2
         let prompt2 = "What is my name?";
         let sink2 = TestSink(Mutex::new(String::new()));
         generate_response(&session_id, prompt2, &sink2).unwrap();
-        
+
         let response2 = sink2.0.lock().clone();
         println!("Prompt 2: {}", prompt2);
         println!("Response 2: {}", response2);
-        
+
         assert!(response2.contains("Alice"));
     }
 
@@ -451,7 +488,14 @@ mod tests {
 
         // 2. Initialize engine (needed for tokenizer)
         let cache_dir = setup_test("./tmp/testing_pte", "qwen3").await;
-        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+            },
+        )
+        .await;
 
         let prompt = "what is the capital of China? /no_think";
         let result = experimental_completion_with_pte(pte_path, prompt);
@@ -467,7 +511,14 @@ mod tests {
     #[tokio::test]
     async fn test_one_plus_one_qwen2() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+            },
+        )
+        .await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 
@@ -485,7 +536,14 @@ mod tests {
     #[tokio::test]
     async fn test_one_plus_one_qwen3() {
         let cache_dir = setup_test("./tmp/testing_qwen3", "qwen3").await;
-        init(cache_dir, InitConfig { vocab_shards: 1, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+            },
+        )
+        .await;
         let session_id = init_session();
         let prompt = "what is the capital of china? only answer the city name /no_think";
 
@@ -503,7 +561,14 @@ mod tests {
     #[tokio::test]
     async fn test_sharded_one_plus_one() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(cache_dir, InitConfig { vocab_shards: 0, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 0,
+                max_gen_len: 256,
+            },
+        )
+        .await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 
@@ -521,7 +586,14 @@ mod tests {
     #[tokio::test]
     async fn test_multi_sharded_one_plus_one() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(cache_dir, InitConfig { vocab_shards: 10, max_gen_len: 256 }).await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 10,
+                max_gen_len: 256,
+            },
+        )
+        .await;
         let session_id = init_session();
         let prompt = "what is 1+1? only answer with numbers";
 

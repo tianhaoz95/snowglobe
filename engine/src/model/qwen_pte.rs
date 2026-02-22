@@ -1,5 +1,5 @@
-use crate::adapter::Module;
 use crate::GLOBAL_TOKENIZER;
+use crate::adapter::Module;
 use std::time::Instant;
 
 pub struct QwenPte {
@@ -22,8 +22,12 @@ impl QwenPte {
         let im_end_id = tokenizer
             .token_to_id("<|im_end|>")
             .expect("Missing <|im_end|>");
-        let newline_id = tokenizer.token_to_id("
-").unwrap_or(198);
+        let newline_id = tokenizer
+            .token_to_id(
+                "
+",
+            )
+            .unwrap_or(198);
 
         let mut tokens = vec![im_start_id];
         tokens.extend(tokenizer.encode("user", false).unwrap().get_ids());

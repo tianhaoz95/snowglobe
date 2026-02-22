@@ -43,8 +43,8 @@ impl Module {
         };
 
         let mut vocab_size = 0;
-        let mut output_logits = vec![0.0f32; 128 * 152064]; 
-        
+        let mut output_logits = vec![0.0f32; 128 * 152064];
+
         let status = unsafe {
             executorch_module_forward(
                 self.ptr,

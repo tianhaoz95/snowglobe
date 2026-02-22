@@ -27,7 +27,5 @@ pub trait Model<B: Backend>: Module<B> {
     ) -> (Tensor<B, 3>, Vec<KVCache<B>>);
 }
 
-pub use qwen::{
-    Qwen, QwenAttentionRecord, QwenBlockRecord, QwenConfig, QwenMLPRecord, QwenRecord,
-};
+pub use qwen::{Qwen, QwenAttentionRecord, QwenBlockRecord, QwenConfig, QwenMLPRecord, QwenRecord};
 pub use qwen_pte::QwenPte;

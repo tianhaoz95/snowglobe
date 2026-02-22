@@ -3,12 +3,14 @@ use burn::{
     nn::{EmbeddingConfig, Linear, LinearConfig, RmsNorm, RmsNormConfig},
     tensor::{Int, Tensor, backend::Backend},
 };
- // Closing brace for the `burn` import block
+// Closing brace for the `burn` import block
 use serde::{Deserialize, Serialize};
 
-use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
-use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear, VocabEmbedding, VocabLinear};
 use super::{KVCache, Model};
+use crate::layer::large_vocab::{
+    LargeVocabEmbedding, LargeVocabLinear, VocabEmbedding, VocabLinear,
+};
+use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
 
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
@@ -62,7 +64,7 @@ impl QwenConfig {
         let dropout = self.dropout;
         let qkv_bias = self.qkv_bias;
         let head_dim = self.head_dim.unwrap_or(hidden_size / num_attention_heads);
-        
+
         let use_qk_norm = self.use_qk_norm.unwrap_or_else(|| {
             if let Some(model_type) = &self.model_type {
                 model_type == "qwen3"
@@ -500,7 +502,12 @@ impl<B: Backend> QwenAttention<B> {
                     self.head_dim,
                 ])
                 .repeat(&[1, 1, num_reps, 1, 1])
-                .reshape([batch_size, self.num_attention_heads, seq_len_k, self.head_dim])
+                .reshape([
+                    batch_size,
+                    self.num_attention_heads,
+                    seq_len_k,
+                    self.head_dim,
+                ])
         } else {
             k_final
         };
@@ -516,7 +523,12 @@ impl<B: Backend> QwenAttention<B> {
                     self.head_dim,
                 ])
                 .repeat(&[1, 1, num_reps, 1, 1])
-                .reshape([batch_size, self.num_attention_heads, seq_len_k, self.head_dim])
+                .reshape([
+                    batch_size,
+                    self.num_attention_heads,
+                    seq_len_k,
+                    self.head_dim,
+                ])
         } else {
             v_final
         };
@@ -640,7 +652,7 @@ mod tests {
 
         let model: Qwen<NdArray> = config.init(&device);
         assert_eq!(model.layers.len(), 2);
-        
+
         // Check attention params
         let layer0 = &model.layers[0];
         assert_eq!(layer0.self_attn.head_dim, 128);
