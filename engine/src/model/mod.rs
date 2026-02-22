@@ -1,4 +1,5 @@
 pub mod qwen;
+pub mod qwen_pte;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
@@ -29,3 +30,4 @@ pub trait Model<B: Backend>: Module<B> {
 pub use qwen::{
     Qwen, QwenAttentionRecord, QwenBlockRecord, QwenConfig, QwenMLPRecord, QwenRecord,
 };
+pub use qwen_pte::QwenPte;

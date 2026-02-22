@@ -11,7 +11,7 @@ pub use utils::downloader::{
     download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b,
 };
 
-use crate::model::{KVCache, Model, Qwen, QwenConfig};
+use crate::model::{KVCache, Model, Qwen, QwenConfig, QwenPte};
 use crate::layer::large_vocab::CHUNK_SIZE;
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
@@ -31,96 +31,8 @@ use uuid::Uuid;
 /// To avoid ABI mismatches (like [abi:ne200100] on macOS), ensure that ExecuTorch is built 
 /// with the same SDK and compiler flags as the Rust engine.
 pub fn experimental_completion_with_pte(pte_path: &str, prompt: &str) -> Result<String, String> {
-    let tokenizer = GLOBAL_TOKENIZER.get().ok_or("Tokenizer not initialized")?;
-    
-    // 1. Load the model
-    let mut module = crate::adapter::Module::new(pte_path)?;
-
-    // 2. Tokenize prompt with chat template
-    let im_start_id = tokenizer.token_to_id("<|im_start|>").expect("Missing <|im_start|>");
-    let im_end_id = tokenizer.token_to_id("<|im_end|>").expect("Missing <|im_end|>");
-    let newline_id = tokenizer.token_to_id("\n").unwrap_or(198);
-
-    let mut tokens = vec![im_start_id];
-    tokens.extend(tokenizer.encode("user", false).unwrap().get_ids());
-    tokens.push(newline_id);
-    tokens.extend(tokenizer.encode(prompt, false).unwrap().get_ids());
-    tokens.push(im_end_id);
-    tokens.push(newline_id);
-    tokens.push(im_start_id);
-    tokens.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
-    tokens.push(newline_id);
-
-    // Qwen3 0.6B model we exported has fixed 128 input size.
-    let max_new_tokens = 16;
-    let mut response_tokens = Vec::new();
-
-    // Use environment variable to decide if we use i32 or i64 tokens.
-    // MPS backend usually requires i32 for consistency with the causal mask in our script.
-    let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
-
-    for i in 0..max_new_tokens {
-        let current_len = tokens.len();
-        if current_len >= 128 {
-            break;
-        }
-        println!("--- Token {} ---", i);
-        let start_token = std::time::Instant::now();
-
-        // 3. Forward
-        println!("  Forwarding (use_mps: {})...", use_mps);
-        let forward_start = std::time::Instant::now();
-        
-        let (logits, vocab_size) = if use_mps {
-            let mut input_tokens = vec![0i32; 128];
-            for (j, &token) in tokens.iter().enumerate() {
-                input_tokens[j] = token as i32;
-            }
-            module.forward(&input_tokens)
-        } else {
-            let mut input_tokens = vec![0i64; 128];
-            for (j, &token) in tokens.iter().enumerate() {
-                input_tokens[j] = token as i64;
-            }
-            module.forward(&input_tokens)
-        }.map_err(|e| format!("Model forward failed: {:?}", e))?;
-        
-        println!("  Forward pass done in {:?}", forward_start.elapsed());
-        
-        // 4. Get logits for the last token position
-        let last_pos = current_len - 1;
-        let start_idx = last_pos * vocab_size;
-        
-        let mut max_logit = f32::NEG_INFINITY;
-        let mut next_token = 0;
-        
-        println!("  Calculating next token...");
-        for v in 0..vocab_size {
-            let logit = logits[start_idx + v];
-            if logit > max_logit {
-                max_logit = logit;
-                next_token = v;
-            }
-        }
-        println!("  Next token calculated...");
-
-        if next_token == im_end_id as usize {
-            println!("  EOS detected.");
-            break;
-        }
-
-        tokens.push(next_token as u32);
-        response_tokens.push(next_token as u32);
-        println!("  Next token: {} (time: {:?})", next_token, start_token.elapsed());
-        if let Ok(current_text) = tokenizer.decode(&response_tokens, true) {
-            println!("  Current sequence: \"{}\"", current_text);
-        }
-    }
-
-    let completion = tokenizer.decode(&response_tokens, true)
-        .map_err(|e| format!("Decoding failed: {}", e))?;
-    
-    Ok(completion)
+    let mut model = QwenPte::new(pte_path)?;
+    model.generate(prompt, 16)
 }
 
 #[cfg(feature = "high_perf")]
@@ -160,9 +72,9 @@ pub use backend_setup::Backend;
 pub use backend_setup::Device;
 pub use backend_setup::GLOBAL_DEVICE;
 
-static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
-static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
-static GLOBAL_MODEL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
+pub static GLOBAL_MODEL: OnceCell<Mutex<Qwen<Backend>>> = OnceCell::new();
+pub static GLOBAL_TOKENIZER: OnceCell<Tokenizer> = OnceCell::new();
+pub static GLOBAL_MODEL_CONFIG: OnceCell<QwenConfig> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 pub struct InitConfig {
@@ -170,7 +82,7 @@ pub struct InitConfig {
     pub max_gen_len: usize,
 }
 
-static GLOBAL_INIT_CONFIG: OnceCell<InitConfig> = OnceCell::new();
+pub static GLOBAL_INIT_CONFIG: OnceCell<InitConfig> = OnceCell::new();
 
 pub struct SessionState {
     pub tokens: Vec<u32>,
@@ -178,7 +90,7 @@ pub struct SessionState {
     pub offset: usize,
 }
 
-static SESSIONS: OnceCell<DashMap<String, SessionState>> = OnceCell::new();
+pub static SESSIONS: OnceCell<DashMap<String, SessionState>> = OnceCell::new();
 
 pub fn check_backend() -> String {
     #[cfg(feature = "high_perf")]
