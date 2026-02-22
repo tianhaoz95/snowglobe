@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
 use crate::layer::large_vocab::{LargeVocabEmbedding, LargeVocabLinear, VocabEmbedding, VocabLinear};
+use super::{KVCache, Model};
 
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
@@ -167,14 +168,14 @@ pub struct Qwen<B: Backend> {
     pub linear_output: VocabLinear<B>,
 }
 
-#[derive(Clone, Debug)]
-pub struct KVCache<B: Backend> {
-    pub key: Tensor<B, 4>,
-    pub value: Tensor<B, 4>,
-}
+impl<B: Backend> Model<B> for Qwen<B> {
+    type Config = QwenConfig;
 
-impl<B: Backend> Qwen<B> {
-    pub fn forward(
+    fn init(config: &Self::Config, device: &B::Device) -> Self {
+        config.init(device)
+    }
+
+    fn forward(
         &self,
         input: Tensor<B, 2, Int>,
         cache: Option<Vec<Option<KVCache<B>>>>,

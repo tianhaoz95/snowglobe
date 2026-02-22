@@ -11,7 +11,7 @@ pub use utils::downloader::{
     download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b,
 };
 
-use crate::model::{KVCache, Qwen, QwenConfig};
+use crate::model::{KVCache, Model, Qwen, QwenConfig};
 use crate::layer::large_vocab::CHUNK_SIZE;
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
