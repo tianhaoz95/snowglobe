@@ -1,4 +1,4 @@
-use crate::GLOBAL_TOKENIZER;
+use crate::GLOBAL_MODEL;
 use crate::adapter::Module;
 use std::time::Instant;
 
@@ -13,7 +13,8 @@ impl QwenPte {
     }
 
     pub fn generate(&mut self, prompt: &str, max_new_tokens: usize) -> Result<String, String> {
-        let tokenizer = GLOBAL_TOKENIZER.get().ok_or("Tokenizer not initialized")?;
+        let loaded_model = GLOBAL_MODEL.get().ok_or("Model not initialized")?;
+        let tokenizer = &loaded_model.tokenizer;
 
         // 1. Tokenize prompt with chat template
         let im_start_id = tokenizer

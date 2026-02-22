@@ -3,12 +3,28 @@ pub mod qwen_pte;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
+use parking_lot::Mutex;
+use tokenizers::Tokenizer;
 
 /// Key-Value cache for the transformer layers.
 #[derive(Clone, Debug)]
 pub struct KVCache<B: Backend> {
     pub key: Tensor<B, 4>,
     pub value: Tensor<B, 4>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InitConfig {
+    pub vocab_shards: usize,
+    pub max_gen_len: usize,
+}
+
+pub struct LoadedModel<B: Backend> {
+    pub model: Mutex<Qwen<B>>,
+    pub tokenizer: Tokenizer,
+    pub config: QwenConfig,
+    pub device: B::Device,
+    pub init_config: InitConfig,
 }
 
 /// Trait defining the base API for LLM models.
