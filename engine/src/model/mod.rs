@@ -17,10 +17,31 @@ pub struct KVCache<B: Backend> {
 pub struct InitConfig {
     pub vocab_shards: usize,
     pub max_gen_len: usize,
+    pub use_executorch: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum QwenVariant<B: Backend> {
+    Burn(Qwen<B>),
+    ExecuTorch(QwenPte<B>),
+}
+
+impl<B: Backend> QwenVariant<B> {
+    pub fn forward(
+        &self,
+        input: Tensor<B, 2, Int>,
+        cache: Option<Vec<Option<KVCache<B>>>>,
+        offset: usize,
+    ) -> (Tensor<B, 3>, Vec<KVCache<B>>) {
+        match self {
+            QwenVariant::Burn(m) => m.forward(input, cache, offset),
+            QwenVariant::ExecuTorch(m) => m.forward(input, cache, offset),
+        }
+    }
 }
 
 pub struct LoadedModel<B: Backend> {
-    pub model: Mutex<Qwen<B>>,
+    pub model: Mutex<QwenVariant<B>>,
     pub tokenizer: Tokenizer,
     pub config: QwenConfig,
     pub device: B::Device,

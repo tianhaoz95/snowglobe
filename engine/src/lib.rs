@@ -10,7 +10,9 @@ pub mod weight;
 pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b};
 
 use crate::layer::large_vocab::CHUNK_SIZE;
-use crate::model::{InitConfig, KVCache, LoadedModel, Model, Qwen, QwenConfig, QwenPte};
+use crate::model::{
+    InitConfig, KVCache, LoadedModel, Qwen, QwenConfig, QwenPte, QwenVariant,
+};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
@@ -84,21 +86,21 @@ pub fn check_backend() -> String {
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
 pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
-    let device = init_platform().await;
+    let device = init_platform(&init_config).await;
     init_model(cache_dir, init_config, device).await
 }
 
-async fn init_platform() -> Device {
+async fn init_platform(_init_config: &InitConfig) -> Device {
     // 1. Initialize Device based on Feature
     #[cfg(feature = "high_perf")]
     let device = burn::backend::wgpu::WgpuDevice::DefaultDevice;
     #[cfg(not(feature = "high_perf"))]
     let device = burn::backend::ndarray::NdArrayDevice::Cpu;
 
-    // 2. Setup GPU only if High Perf is enabled
+    // 2. Setup GPU only if High Perf is enabled and NOT using ExecuTorch
     #[cfg(feature = "high_perf")]
     {
-        if GPU_SETUP.get().is_none() {
+        if !_init_config.use_executorch && GPU_SETUP.get().is_none() {
             let _setup = burn_wgpu::init_setup_async::<backend_setup::GraphicsApi>(
                 &device,
                 burn_wgpu::RuntimeOptions::default(),
@@ -126,42 +128,58 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         config.vocab_shards = (config.vocab_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
     }
 
-    let mut model: Qwen<Backend> = config.init(&device);
-
-    let model_path = Path::new(&cache_dir).join("model.safetensors");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
-
-    if !model_path.exists() {
-        return "Model file missing. Please call download_model first.".to_string();
-    }
-
     if !tokenizer_path.exists() {
         return "Tokenizer file missing. Please call download_model first.".to_string();
     }
-
-    let file = std::fs::File::open(&model_path).unwrap();
-    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
-    let safetensors = SafeTensors::deserialize(&mmap).unwrap();
-
-    let record = model.clone().into_record();
-    let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
-    model = model.load_record(model_with_weights);
-
-    // CRITICAL: Ensure the 'mmap' and 'safetensors' variables are dropped or
-    // go out of scope here to free up that ~1-2GB of RAM.
-    drop(safetensors);
-    drop(mmap);
-    drop(file);
-
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
-    let _ = GLOBAL_MODEL.set(LoadedModel {
-        model: Mutex::new(model),
-        tokenizer,
-        config,
-        device,
-        init_config,
-    });
+    if init_config.use_executorch {
+        let pte_path = Path::new(&cache_dir).join("model.pte");
+        if !pte_path.exists() {
+            return "PTE model file missing (model.pte).".to_string();
+        }
+        let model = QwenPte::<Backend>::new(pte_path.to_str().unwrap())
+            .expect("Failed to load PTE model");
+
+        let _ = GLOBAL_MODEL.set(LoadedModel {
+            model: Mutex::new(QwenVariant::ExecuTorch(model)),
+            tokenizer,
+            config,
+            device,
+            init_config,
+        });
+    } else {
+        let mut model: Qwen<Backend> = config.init(&device);
+        let model_path = Path::new(&cache_dir).join("model.safetensors");
+
+        if !model_path.exists() {
+            return "Model file missing. Please call download_model first.".to_string();
+        }
+
+        let file = std::fs::File::open(&model_path).unwrap();
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
+        let safetensors = SafeTensors::deserialize(&mmap).unwrap();
+
+        let record = model.clone().into_record();
+        let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
+        model = model.load_record(model_with_weights);
+
+        // CRITICAL: Ensure the 'mmap' and 'safetensors' variables are dropped or
+        // go out of scope here to free up that ~1-2GB of RAM.
+        drop(safetensors);
+        drop(mmap);
+        drop(file);
+
+        let _ = GLOBAL_MODEL.set(LoadedModel {
+            model: Mutex::new(QwenVariant::Burn(model)),
+            tokenizer,
+            config,
+            device,
+            init_config,
+        });
+    }
+
     let _ = SESSIONS.set(DashMap::new());
     return "Success".to_string();
 }
@@ -260,19 +278,24 @@ where
     session_state.tokens.push(newline_id);
 
     for _ in 0..init_config.max_gen_len {
-        // 1. Process all pending tokens
-        let num_pending = session_state.tokens.len() - session_state.offset;
-        if num_pending == 0 {
+        // 1. Process pending tokens
+        // For ExecuTorch, we always pass the full sequence (0..len)
+        // For Burn, we only pass new tokens (offset..len)
+        let start_idx = if init_config.use_executorch { 0 } else { session_state.offset };
+        let num_to_process = session_state.tokens.len() - start_idx;
+        let num_new = session_state.tokens.len() - session_state.offset;
+
+        if num_new == 0 {
             break;
         }
 
         let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
             TensorData::new(
-                session_state.tokens[session_state.offset..]
+                session_state.tokens[start_idx..]
                     .iter()
                     .map(|&x| x as i32)
                     .collect::<Vec<_>>(),
-                Shape::new([1, num_pending]),
+                Shape::new([1, num_to_process]),
             ),
             device,
         );
@@ -287,12 +310,12 @@ where
         );
 
         session_state.cache = Some(new_cache);
-        session_state.offset += num_pending;
+        session_state.offset += num_new;
 
         let next_token_logits = output
             .slice([
                 0..1,
-                (num_pending - 1)..(num_pending),
+                (num_to_process - 1)..(num_to_process),
                 0..model_config.vocab_size,
             ])
             .reshape([1, model_config.vocab_size]);
@@ -334,6 +357,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 1,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
@@ -430,6 +454,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 1,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
@@ -472,30 +497,42 @@ mod tests {
 
     #[tokio::test]
     async fn test_one_plus_one_pte() {
-        // 1. Generate PTE if not exists
+        // 1. Ensure PTE exists at root and prepare cache dir
         let pte_path = "../qwen3_0.6b.pte";
         assert!(std::path::Path::new(pte_path).exists());
 
-        // 2. Initialize engine (needed for tokenizer)
         let cache_dir = setup_test("./tmp/testing_pte", "qwen3").await;
+        
+        // 2. Link or copy the pte file to the cache dir as expected by init_model
+        let target_pte = Path::new(&cache_dir).join("model.pte");
+        if !target_pte.exists() {
+            std::fs::copy(pte_path, target_pte).expect("Failed to copy PTE to cache dir");
+        }
+
+        // 3. Initialize engine with ExecuTorch enabled
         init(
             cache_dir,
             InitConfig {
                 vocab_shards: 1,
                 max_gen_len: 256,
+                use_executorch: true,
             },
         )
         .await;
 
+        let session_id = init_session();
         let prompt = "what is the capital of China? /no_think";
-        let result = experimental_completion_with_pte(pte_path, prompt);
+        let sink = TestSink(Mutex::new(String::new()));
+        
+        // 4. Verify the integrated generate_response works with ExecuTorch
+        let result = generate_response(&session_id, prompt, &sink);
 
         assert!(result.is_ok());
-        let response = result.unwrap();
+        let response = sink.0.lock().clone();
         println!("Prompt: {}", prompt);
         println!("Response: {}", response);
 
-        assert!(!response.is_empty());
+        assert!(response.to_lowercase().contains("beijing"));
     }
 
     #[tokio::test]
@@ -506,6 +543,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 1,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
@@ -531,6 +569,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 1,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
@@ -556,6 +595,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 0,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
@@ -581,6 +621,7 @@ mod tests {
             InitConfig {
                 vocab_shards: 10,
                 max_gen_len: 256,
+                use_executorch: false,
             },
         )
         .await;
