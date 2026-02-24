@@ -170,7 +170,9 @@ impl<B: Backend> Model<B> for QwenPte<B> {
         );
 
         // Truncate back to [batch_size, seq_len, vocab_size]
-        let output = output.slice([0..batch_size, 0..seq_len, 0..vocab_size]);
+        // Ensure we don't slice beyond 128 (model fixed limit)
+        let effective_seq_len = seq_len.min(128);
+        let output = output.slice([0..batch_size, 0..effective_seq_len, 0..vocab_size]);
 
         (output, Vec::new())
     }

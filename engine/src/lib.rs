@@ -290,10 +290,16 @@ where
 
     for _ in 0..generation_limit {
         // 1. Process pending tokens
-        // For ExecuTorch, we always pass the full sequence (0..len)
+        // For ExecuTorch, we pass the full sequence, but capped at 128 (model limit)
         // For Burn, we only pass new tokens (offset..len)
-        let start_idx = if init_config.use_executorch { 0 } else { session_state.offset };
-        let num_to_process = session_state.tokens.len() - start_idx;
+        let (start_idx, num_to_process) = if init_config.use_executorch {
+            let total_len = session_state.tokens.len();
+            let start = total_len.saturating_sub(128);
+            (start, total_len - start)
+        } else {
+            let start = session_state.offset;
+            (start, session_state.tokens.len() - start)
+        };
         let num_new = session_state.tokens.len() - session_state.offset;
 
         if num_new == 0 {
