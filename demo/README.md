@@ -26,5 +26,5 @@ EXECUTORCH_USE_MPS=1 \
 EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
 flutter run -d macos --release
 
-EXECUTORCH_USE_MPS=1 flutter run -d macos --release
+EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out EXECUTORCH_USE_MPS=1 flutter run -d macos --release
 ```

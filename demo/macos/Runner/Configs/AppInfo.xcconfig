@@ -17,4 +17,8 @@ PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
 ARCHS = arm64
 
 // For building rust components
-OTHER_LDFLAGS = $(inherited) -framework SystemConfiguration -lc++
+OTHER_LDFLAGS = $(inherited) -framework SystemConfiguration
+
+// Aligns the deployment target for all build stages
+MACOSX_DEPLOYMENT_TARGET = 26.0
+IPHONEOS_DEPLOYMENT_TARGET = 26.0

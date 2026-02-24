@@ -153,7 +153,8 @@ fn main() {
         let mps_include = base_dir.join("backends/apple/mps");
         let pthreadpool_include = base_dir.join("backends/xnnpack/third-party/pthreadpool/include");
 
-        cc::Build::new()
+        let mut build = cc::Build::new();
+        build
             .cpp(true)
             .file("src/adapter/executorch_adapter.cpp")
             .include("src/adapter")
@@ -165,7 +166,12 @@ fn main() {
             .define("C10_USING_CUSTOM_GENERATED_MACROS", None)
             .flag("-std=c++17")
             .flag("-fno-aligned-allocation")
-            .flag("-fno-exceptions")
-            .compile("executorch_adapter");
+            .flag("-fno-exceptions");
+
+        if target.contains("apple-darwin") {
+            build.flag("-mmacosx-version-min=26.0");
+        }
+
+        build.compile("executorch_adapter");
     }
 }
