@@ -234,7 +234,12 @@ impl<T, S: StreamSink<T>> StreamSink<T> for &S {
     }
 }
 
-pub fn generate_response<S>(session_id: &str, prompt: &str, sink: S) -> Result<(), String>
+pub fn generate_response<S>(
+    session_id: &str,
+    prompt: &str,
+    max_gen_len: u32,
+    sink: S,
+) -> Result<(), String>
 where
     S: StreamSink<String>,
 {
@@ -277,7 +282,13 @@ where
         .extend(tokenizer.encode("assistant", false).unwrap().get_ids());
     session_state.tokens.push(newline_id);
 
-    for _ in 0..init_config.max_gen_len {
+    let generation_limit = if max_gen_len > 0 {
+        max_gen_len
+    } else {
+        init_config.max_gen_len as u32
+    };
+
+    for _ in 0..generation_limit {
         // 1. Process pending tokens
         // For ExecuTorch, we always pass the full sequence (0..len)
         // For Burn, we only pass new tokens (offset..len)
@@ -463,12 +474,12 @@ mod tests {
         // Turn 1
         let prompt1 = "My name is Alice. Remember that.";
         let sink1 = TestSink(Mutex::new(String::new()));
-        generate_response(&session_id, prompt1, &sink1).unwrap();
+        generate_response(&session_id, prompt1, 256, &sink1).unwrap();
 
         // Turn 2
         let prompt2 = "What is my name?";
         let sink2 = TestSink(Mutex::new(String::new()));
-        generate_response(&session_id, prompt2, &sink2).unwrap();
+        generate_response(&session_id, prompt2, 256, &sink2).unwrap();
 
         let response2 = sink2.0.lock().clone();
         println!("Prompt 2: {}", prompt2);
@@ -525,7 +536,7 @@ mod tests {
         let sink = TestSink(Mutex::new(String::new()));
         
         // 4. Verify the integrated generate_response works with ExecuTorch
-        let result = generate_response(&session_id, prompt, &sink);
+        let result = generate_response(&session_id, prompt, 256, &sink);
 
         assert!(result.is_ok());
         let response = sink.0.lock().clone();
@@ -551,7 +562,7 @@ mod tests {
         let prompt = "what is 1+1? only answer with numbers";
 
         let sink = TestSink(Mutex::new(String::new()));
-        let result = generate_response(&session_id, prompt, &sink);
+        let result = generate_response(&session_id, prompt, 256, &sink);
 
         assert!(result.is_ok());
         let response = sink.0.lock().clone();
@@ -577,7 +588,7 @@ mod tests {
         let prompt = "what is the capital of china? only answer the city name /no_think";
 
         let sink = TestSink(Mutex::new(String::new()));
-        let result = generate_response(&session_id, prompt, &sink);
+        let result = generate_response(&session_id, prompt, 256, &sink);
 
         assert!(result.is_ok());
         let response = sink.0.lock().clone();
@@ -603,7 +614,7 @@ mod tests {
         let prompt = "what is 1+1? only answer with numbers";
 
         let sink = TestSink(Mutex::new(String::new()));
-        let result = generate_response(&session_id, prompt, &sink);
+        let result = generate_response(&session_id, prompt, 256, &sink);
 
         assert!(result.is_ok());
         let response = sink.0.lock().clone();
@@ -629,7 +640,7 @@ mod tests {
         let prompt = "what is 1+1? only answer with numbers";
 
         let sink = TestSink(Mutex::new(String::new()));
-        let result = generate_response(&session_id, prompt, &sink);
+        let result = generate_response(&session_id, prompt, 256, &sink);
 
         assert!(result.is_ok());
         let response = sink.0.lock().clone();

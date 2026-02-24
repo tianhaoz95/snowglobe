@@ -87,6 +87,7 @@ abstract class RustLibApi extends BaseApi {
   Stream<String> crateApiSimpleGenerateResponse({
     required String sessionId,
     required String prompt,
+    required int maxGenLen,
   });
 
   Future<void> crateApiSimpleInitApp();
@@ -173,6 +174,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Stream<String> crateApiSimpleGenerateResponse({
     required String sessionId,
     required String prompt,
+    required int maxGenLen,
   }) {
     final sink = RustStreamSink<String>();
     unawaited(
@@ -182,6 +184,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(sessionId, serializer);
             sse_encode_String(prompt, serializer);
+            sse_encode_u_32(maxGenLen, serializer);
             sse_encode_StreamSink_String_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
@@ -195,7 +198,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: null,
           ),
           constMeta: kCrateApiSimpleGenerateResponseConstMeta,
-          argValues: [sessionId, prompt, sink],
+          argValues: [sessionId, prompt, maxGenLen, sink],
           apiImpl: this,
         ),
       ),
@@ -206,7 +209,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiSimpleGenerateResponseConstMeta =>
       const TaskConstMeta(
         debugName: "generate_response",
-        argNames: ["sessionId", "prompt", "sink"],
+        argNames: ["sessionId", "prompt", "maxGenLen", "sink"],
       );
 
   @override

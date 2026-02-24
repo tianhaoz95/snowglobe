@@ -139,6 +139,7 @@ fn wire__crate__api__simple__generate_response_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_session_id = <String>::sse_decode(&mut deserializer);
             let api_prompt = <String>::sse_decode(&mut deserializer);
+            let api_max_gen_len = <u32>::sse_decode(&mut deserializer);
             let api_sink =
                 <StreamSink<String, flutter_rust_bridge::for_generated::SseCodec>>::sse_decode(
                     &mut deserializer,
@@ -147,7 +148,12 @@ fn wire__crate__api__simple__generate_response_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
-                        crate::api::simple::generate_response(api_session_id, api_prompt, api_sink);
+                        crate::api::simple::generate_response(
+                            api_session_id,
+                            api_prompt,
+                            api_max_gen_len,
+                            api_sink,
+                        );
                     })?;
                     Ok(output_ok)
                 })())

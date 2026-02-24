@@ -35,8 +35,13 @@ impl snowglobe::StreamSink<String> for FrbSink {
     }
 }
 
-pub fn generate_response(session_id: String, prompt: String, sink: StreamSink<String>) {
-    let _ = snowglobe::generate_response(&session_id, &prompt, FrbSink(sink));
+pub fn generate_response(
+    session_id: String,
+    prompt: String,
+    max_gen_len: u32,
+    sink: StreamSink<String>,
+) {
+    let _ = snowglobe::generate_response(&session_id, &prompt, max_gen_len, FrbSink(sink));
 }
 
 pub fn experimental_completion_with_pte(pte_path: String, prompt: String) -> String {

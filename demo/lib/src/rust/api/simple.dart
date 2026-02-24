@@ -26,9 +26,11 @@ Future<String> initSession() =>
 Stream<String> generateResponse({
   required String sessionId,
   required String prompt,
+  required int maxGenLen,
 }) => RustLib.instance.api.crateApiSimpleGenerateResponse(
   sessionId: sessionId,
   prompt: prompt,
+  maxGenLen: maxGenLen,
 );
 
 Future<String> experimentalCompletionWithPte({

@@ -30,6 +30,7 @@ class _MyAppState extends State<MyApp> {
   // Engine status
   String? _engineErrorMessage;
   bool _isEngineReady = false;
+  int _maxGenLen = 128;
 
   // Performance metrics
   int _tokenCount = 0;
@@ -310,6 +311,7 @@ class _MyAppState extends State<MyApp> {
       final tokenStream = generateResponse(
         sessionId: _sessionId!,
         prompt: currentPrompt,
+        maxGenLen: _maxGenLen,
       );
 
       await for (final token in tokenStream) {
@@ -460,7 +462,65 @@ class _MyAppState extends State<MyApp> {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+
+                // Generation Settings
+                if (_isEngineReady)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Max Tokens: $_maxGenLen',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            Text(
+                              'Controls response length',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 4,
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 8,
+                            ),
+                            overlayShape: const RoundSliderOverlayShape(
+                              overlayRadius: 16,
+                            ),
+                          ),
+                          child: Slider(
+                            value: _maxGenLen.toDouble(),
+                            min: 16,
+                            max: 512,
+                            divisions: 31,
+                            label: _maxGenLen.toString(),
+                            onChanged: _isLoading
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _maxGenLen = value.round();
+                                    });
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 16),
 
                 // Prompt Section
                 Container(
