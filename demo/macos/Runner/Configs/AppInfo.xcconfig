@@ -13,5 +13,8 @@ PRODUCT_BUNDLE_IDENTIFIER = com.example.snowglobedemo
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
 
+// Force arm64 only
+ARCHS = arm64
+
 // For building rust components
 OTHER_LDFLAGS = $(inherited) -framework SystemConfiguration -lc++

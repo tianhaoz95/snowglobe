@@ -316,6 +316,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
   InitConfig dco_decode_box_autoadd_init_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_init_config(raw);
@@ -325,11 +331,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   InitConfig dco_decode_init_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return InitConfig(
       vocabShards: dco_decode_u_32(arr[0]),
       maxGenLen: dco_decode_u_32(arr[1]),
+      useExecutorch: dco_decode_bool(arr[2]),
     );
   }
 
@@ -380,6 +387,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
   InitConfig sse_decode_box_autoadd_init_config(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_init_config(deserializer));
@@ -390,7 +403,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_vocabShards = sse_decode_u_32(deserializer);
     var var_maxGenLen = sse_decode_u_32(deserializer);
-    return InitConfig(vocabShards: var_vocabShards, maxGenLen: var_maxGenLen);
+    var var_useExecutorch = sse_decode_bool(deserializer);
+    return InitConfig(
+      vocabShards: var_vocabShards,
+      maxGenLen: var_maxGenLen,
+      useExecutorch: var_useExecutorch,
+    );
   }
 
   @protected
@@ -421,12 +439,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
-  }
-
-  @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
   }
 
   @protected
@@ -462,6 +474,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
   void sse_encode_box_autoadd_init_config(
     InitConfig self,
     SseSerializer serializer,
@@ -475,6 +493,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self.vocabShards, serializer);
     sse_encode_u_32(self.maxGenLen, serializer);
+    sse_encode_bool(self.useExecutorch, serializer);
   }
 
   @protected
@@ -508,11 +527,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }

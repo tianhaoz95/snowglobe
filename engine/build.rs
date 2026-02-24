@@ -21,14 +21,14 @@ fn main() {
 
         // --- Core ExecuTorch ---
         println!("cargo:rustc-link-search=native={}", search_base.display());
-        println!("cargo:rustc-link-lib=static:+whole-archive=executorch");
-        println!("cargo:rustc-link-lib=static:+whole-archive=executorch_core");
+        println!("cargo:rustc-link-lib=static=executorch");
+        println!("cargo:rustc-link-lib=static=executorch_core");
 
         // --- Extensions ---
         let module_path = search_base.join("extension/module");
         if module_path.exists() {
             println!("cargo:rustc-link-search=native={}", module_path.display());
-            println!("cargo:rustc-link-lib=static:+whole-archive=extension_module");
+            println!("cargo:rustc-link-lib=static=extension_module");
         }
 
         let data_loader_path = search_base.join("extension/data_loader");
@@ -37,7 +37,7 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 data_loader_path.display()
             );
-            println!("cargo:rustc-link-lib=static:+whole-archive=extension_data_loader");
+            println!("cargo:rustc-link-lib=static=extension_data_loader");
         }
 
         let named_data_map_path = search_base.join("extension/named_data_map");
@@ -46,7 +46,7 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 named_data_map_path.display()
             );
-            println!("cargo:rustc-link-lib=static:+whole-archive=extension_named_data_map");
+            println!("cargo:rustc-link-lib=static=extension_named_data_map");
         }
 
         let flat_tensor_path = search_base.join("extension/flat_tensor");
@@ -55,7 +55,7 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 flat_tensor_path.display()
             );
-            println!("cargo:rustc-link-lib=static:+whole-archive=extension_flat_tensor");
+            println!("cargo:rustc-link-lib=static=extension_flat_tensor");
         }
 
         let threadpool_path = search_base.join("extension/threadpool");
@@ -64,7 +64,7 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 threadpool_path.display()
             );
-            println!("cargo:rustc-link-lib=static:+whole-archive=extension_threadpool");
+            println!("cargo:rustc-link-lib=static=extension_threadpool");
         }
 
         // --- Backends & Delegates ---
@@ -73,6 +73,7 @@ fn main() {
         let mps_path = search_base.join("backends/apple/mps");
         if mps_path.exists() {
             println!("cargo:rustc-link-search=native={}", mps_path.display());
+            // Backends DO need whole-archive for static registration
             println!("cargo:rustc-link-lib=static:+whole-archive=mpsdelegate");
         }
 
@@ -92,8 +93,8 @@ fn main() {
                     "cargo:rustc-link-search=native={}",
                     xnn_third_party.display()
                 );
-                println!("cargo:rustc-link-lib=static:+whole-archive=XNNPACK");
-                println!("cargo:rustc-link-lib=static:+whole-archive=xnnpack-microkernels-prod");
+                println!("cargo:rustc-link-lib=static=XNNPACK");
+                println!("cargo:rustc-link-lib=static=xnnpack-microkernels-prod");
             }
 
             let pthreadpool_path = xnnpack_path.join("third-party/pthreadpool");
@@ -110,11 +111,6 @@ fn main() {
                 println!("cargo:rustc-link-search=native={}", cpuinfo_path.display());
                 println!("cargo:rustc-link-lib=static=cpuinfo");
             }
-        } else {
-            println!(
-                "cargo:warning=❌ XNNPACK PATH MISSING! Looked for: {}",
-                xnnpack_path.display()
-            );
         }
 
         let kleidiai_path = search_base.join("kleidiai");
@@ -127,17 +123,9 @@ fn main() {
         let portable_path = search_base.join("kernels/portable");
         if portable_path.exists() {
             println!("cargo:rustc-link-search=native={}", portable_path.display());
+            // Kernels DO need whole-archive for static registration
             println!("cargo:rustc-link-lib=static:+whole-archive=portable_kernels");
-            println!("cargo:rustc-link-lib=static:+whole-archive=portable_ops_lib");
-
-            let kernels_util_path = portable_path.join("cpu/util");
-            if kernels_util_path.exists() {
-                println!(
-                    "cargo:rustc-link-search=native={}",
-                    kernels_util_path.display()
-                );
-                println!("cargo:rustc-link-lib=static=kernels_util_all_deps");
-            }
+            println!("cargo:rustc-link-lib=static=portable_ops_lib");
         }
 
         let optimized_path = search_base.join("kernels/optimized");
@@ -149,13 +137,6 @@ fn main() {
             println!("cargo:rustc-link-lib=static:+whole-archive=optimized_kernels");
         }
 
-        // Required Apple Frameworks
-        if target.contains("apple") {
-            println!("cargo:rustc-link-lib=framework=Foundation");
-            println!("cargo:rustc-link-lib=framework=Metal");
-            println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
-            println!("cargo:rustc-link-lib=framework=MetalPerformanceShadersGraph");
-        }
         // Required Apple Frameworks
         if target.contains("apple") {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -183,6 +164,8 @@ fn main() {
             .include(&pthreadpool_include)
             .define("C10_USING_CUSTOM_GENERATED_MACROS", None)
             .flag("-std=c++17")
+            .flag("-fno-aligned-allocation")
+            .flag("-fno-exceptions")
             .compile("executorch_adapter");
     }
 }

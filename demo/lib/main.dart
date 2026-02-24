@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:snowglobedemo/src/rust/api/simple.dart';
 import 'package:snowglobedemo/src/rust/frb_generated.dart';
 import 'dart:io';
 
-const bool USE_QWEN3 = false;
+const bool USE_QWEN3 = true;
+const bool USE_EXECUTORCH = true;
 
 void main() {
   runApp(const MyApp());
@@ -25,6 +27,10 @@ class _MyAppState extends State<MyApp> {
   String? _sessionId;
   Future<void>? _initEngineFuture;
 
+  // Engine status
+  String? _engineErrorMessage;
+  bool _isEngineReady = false;
+
   // Performance metrics
   int _tokenCount = 0;
   double _elapsedSeconds = 0;
@@ -40,31 +46,67 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initEngine() async {
-    print('Initializing Rust library...');
-    await RustLib.init();
-    print('Rust library initialized');
-    final backend = await checkBackend();
-    print('Backend check: $backend');
-    final cacheDir = await getApplicationSupportDirectory();
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
+    setState(() {
+      _isLoading = true;
+      _engineErrorMessage = null;
+      _isEngineReady = false;
+    });
+
+    try {
+      print('Initializing Rust library...');
+      await RustLib.init();
+      print('Rust library initialized');
+
+      final backend = await checkBackend();
+      print('Backend check: $backend');
+
+      final cacheDir = await getApplicationSupportDirectory();
+      if (!await cacheDir.exists()) {
+        await cacheDir.create(recursive: true);
+      }
+
+      print('Application Support Directory: ${cacheDir.path}');
+
+      final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
+      if (!downloadSuccess) {
+        setState(() {
+          _engineErrorMessage =
+              'Model files not found. Please upload a model file or download it.';
+        });
+        return;
+      }
+
+      final initResult = await initEngine(
+        cacheDir: cacheDir.path,
+        config: const InitConfig(
+          vocabShards: 8,
+          maxGenLen: 64,
+          useExecutorch: USE_EXECUTORCH,
+        ),
+      );
+      print('Engine initialized: $initResult');
+      _sessionId = await initSession();
+      setState(() {
+        _isEngineReady = true;
+        _response = 'System ready. Let\'s chat!';
+      });
+    } catch (e) {
+      print('Initialization error: $e');
+      setState(() {
+        _engineErrorMessage = 'Failed to initialize engine: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
-
-    await _downloadModelAndTokenizer(cacheDir.path);
-    print('Application Support Directory: ${cacheDir.path}');
-
-    final initResult = await initEngine(
-      cacheDir: cacheDir.path,
-      config: const InitConfig(vocabShards: 8, maxGenLen: 64),
-    );
-    print('Engine initialized: $initResult');
-    _sessionId = await initSession();
   }
 
   Future<void> _deleteModelAssets() async {
     final cacheDir = await getApplicationSupportDirectory();
     final files = [
       File('${cacheDir.path}/model.safetensors'),
+      File('${cacheDir.path}/model.pte'),
       File('${cacheDir.path}/tokenizer.json'),
       File('${cacheDir.path}/config.json'),
     ];
@@ -81,8 +123,10 @@ class _MyAppState extends State<MyApp> {
         }
       }
       _sessionId = null;
+      _isEngineReady = false;
       setState(() {
         _response = 'Model assets deleted. System not ready.';
+        _engineErrorMessage = 'Model files deleted. Please redownload or upload.';
       });
     } catch (e) {
       setState(() {
@@ -96,32 +140,66 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _redownloadModelAssets() async {
-    final cacheDir = await getApplicationSupportDirectory();
+    setState(() {
+      _initEngineFuture = _initEngine();
+    });
+  }
+
+  Future<void> _pickAndInstallModel() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+    );
+
+    if (result == null || result.files.single.path == null) {
+      return;
+    }
 
     setState(() {
       _isLoading = true;
+      _response = 'Installing picked model...';
+      _engineErrorMessage = null;
     });
 
     try {
-      await _downloadModelAndTokenizer(cacheDir.path);
+      final cacheDir = await getApplicationSupportDirectory();
+      final pickedFile = File(result.files.single.path!);
+      final extension = pickedFile.path.split('.').last.toLowerCase();
+
+      String targetName;
+      if (extension == 'pte') {
+        targetName = 'model.pte';
+      } else if (extension == 'safetensors') {
+        targetName = 'model.safetensors';
+      } else {
+        targetName = USE_EXECUTORCH ? 'model.pte' : 'model.safetensors';
+      }
+
+      final targetPath = '${cacheDir.path}/$targetName';
+      await pickedFile.copy(targetPath);
 
       setState(() {
-        _response = 'Re-initializing engine...';
+        _response = 'Model installed. Re-initializing engine...';
       });
 
       final initResult = await initEngine(
         cacheDir: cacheDir.path,
-        config: const InitConfig(vocabShards: 8, maxGenLen: 64),
+        config: const InitConfig(
+          vocabShards: 8,
+          maxGenLen: 64,
+          useExecutorch: USE_EXECUTORCH,
+        ),
       );
-      print('Engine re-initialized: $initResult');
       _sessionId = await initSession();
 
       setState(() {
-        _response = 'Model redownloaded and engine ready.';
+        _isEngineReady = true;
+        _response = 'Engine ready with manual model: $targetName';
       });
     } catch (e) {
       setState(() {
-        _response = 'Error during redownload: $e';
+        _response = 'Error installing model: $e';
+        _engineErrorMessage = 'Failed to load picked model: $e';
       });
     } finally {
       setState(() {
@@ -130,7 +208,7 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  Future<void> _downloadModelAndTokenizer(String cacheDir) async {
+  Future<bool> _downloadModelAndTokenizer(String cacheDir) async {
     const qwen2_5ModelUrl =
         'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors';
     const qwen2_5TokenizerUrl =
@@ -149,14 +227,11 @@ class _MyAppState extends State<MyApp> {
     final tokenizerUrl = USE_QWEN3 ? qwen3TokenizerUrl : qwen2_5TokenizerUrl;
     final configUrl = USE_QWEN3 ? qwen3ConfigUrl : qwen2_5ConfigUrl;
 
-    final modelPath = '$cacheDir/model.safetensors';
+    final modelPath = USE_EXECUTORCH
+        ? '$cacheDir/model.pte'
+        : '$cacheDir/model.safetensors';
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
-
-    setState(() {
-      _response = 'Preparing model assets...';
-      _isLoading = true;
-    });
 
     try {
       if (!await File(configPath).exists()) {
@@ -166,15 +241,22 @@ class _MyAppState extends State<MyApp> {
         await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
       }
       if (!await File(modelPath).exists()) {
-        await _downloadFile(modelUrl, modelPath, 'Model weights');
+        if (USE_EXECUTORCH) {
+          final localPte = File('../qwen3_0.6b.pte');
+          if (await localPte.exists()) {
+            setState(() => _response = 'Copying local model.pte...');
+            await localPte.copy(modelPath);
+          } else {
+            return false;
+          }
+        } else {
+          await _downloadFile(modelUrl, modelPath, 'Model weights');
+        }
       }
+      return true;
     } catch (e) {
       print('Download error: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-        _response = 'System ready. Let\'s chat!';
-      });
+      return false;
     }
   }
 
@@ -202,6 +284,8 @@ class _MyAppState extends State<MyApp> {
           }
         }
         await sink.close();
+      } else {
+        throw Exception('Failed to download $label: HTTP ${response.statusCode}');
       }
     } finally {
       httpClient.close();
@@ -209,7 +293,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _generateResponse() async {
-    if (_sessionId == null || _isLoading) return;
+    if (_sessionId == null || _isLoading || !_isEngineReady) return;
 
     setState(() {
       _isLoading = true;
@@ -221,31 +305,6 @@ class _MyAppState extends State<MyApp> {
 
     try {
       final String currentPrompt = _promptController.text;
-
-      // Dummy call to PTE inference if prompt starts with "pte:"
-      if (currentPrompt.startsWith('pte:')) {
-        final prompt = currentPrompt.substring(4);
-        final cacheDir = await getApplicationSupportDirectory();
-        // Check if qwen3_0.6b.pte exists in cacheDir, otherwise use root path for testing if on desktop
-        // On Android, it should be in files dir.
-        final ptePath = '${cacheDir.path}/qwen3_0.6b.pte';
-        if (!await File(ptePath).exists()) {
-          setState(() {
-            _response = 'PTE file not found at $ptePath. Please upload it to the device first.';
-          });
-          return;
-        }
-        
-        final result = await experimentalCompletionWithPte(
-          ptePath: ptePath,
-          prompt: prompt,
-        );
-        setState(() {
-          _response = result;
-        });
-        return;
-      }
-
       final stopwatch = Stopwatch()..start();
 
       final tokenStream = generateResponse(
@@ -311,6 +370,11 @@ class _MyAppState extends State<MyApp> {
               tooltip: 'Delete Model',
             ),
             IconButton(
+              onPressed: _isLoading ? null : _pickAndInstallModel,
+              icon: const Icon(Icons.file_upload_outlined),
+              tooltip: 'Pick Model File',
+            ),
+            IconButton(
               onPressed: _isLoading ? null : _redownloadModelAssets,
               icon: const Icon(Icons.download),
               tooltip: 'Redownload Model',
@@ -331,6 +395,9 @@ class _MyAppState extends State<MyApp> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_engineErrorMessage != null)
+                  _buildErrorBanner(colorScheme),
+
                 // Engine Status Indicator
                 FutureBuilder<void>(
                   future: _initEngineFuture,
@@ -410,22 +477,27 @@ class _MyAppState extends State<MyApp> {
                   ),
                   child: TextField(
                     controller: _promptController,
+                    enabled: _isEngineReady && !_isLoading,
                     style: const TextStyle(fontSize: 15),
                     maxLines: 4,
                     minLines: 1,
                     decoration: InputDecoration(
-                      hintText: 'Message Snowglobe...',
+                      hintText: _isEngineReady
+                          ? 'Message Snowglobe...'
+                          : 'Engine not ready...',
                       hintStyle: TextStyle(color: Colors.grey[400]),
                       contentPadding: const EdgeInsets.all(20),
                       border: InputBorder.none,
                       suffixIcon: Padding(
                         padding: const EdgeInsets.only(right: 8.0),
                         child: IconButton(
-                          onPressed: _isLoading ? null : _generateResponse,
+                          onPressed: _isLoading || !_isEngineReady
+                              ? null
+                              : _generateResponse,
                           icon: Icon(
                             _isLoading ? Icons.hourglass_bottom : Icons.send,
-                            color: _isLoading
-                                ? colorScheme.secondary
+                            color: _isLoading || !_isEngineReady
+                                ? colorScheme.secondary.withOpacity(0.5)
                                 : colorScheme.primary,
                           ),
                         ),
@@ -451,6 +523,44 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner(ColorScheme colorScheme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.error.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _engineErrorMessage!,
+              style: TextStyle(
+                color: colorScheme.onErrorContainer,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: _isLoading ? null : _initEngine,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Retry'),
+            style: TextButton.styleFrom(
+              foregroundColor: colorScheme.error,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+        ],
       ),
     );
   }

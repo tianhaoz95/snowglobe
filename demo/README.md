@@ -19,3 +19,12 @@ cp \
     ~/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so \
     ~/github/snowglobe/demo/build/rust_lib_snowglobedemo/jniLibs/release/arm64-v8a
 ```
+
+
+```bash
+EXECUTORCH_USE_MPS=1 \
+EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
+flutter run -d macos --release
+
+EXECUTORCH_USE_MPS=1 flutter run -d macos --release
+```

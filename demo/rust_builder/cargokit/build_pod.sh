@@ -37,6 +37,10 @@ export CARGOKIT_TOOL_TEMP_DIR=$TARGET_TEMP_DIR/build_tool
 # Directory inside root project. Not necessarily the top level directory of root project.
 export CARGOKIT_ROOT_PROJECT_DIR=$SRCROOT
 
+# ExecuTorch configuration
+export EXECUTORCH_RS_EXECUTORCH_LIB_DIR="$CARGOKIT_ROOT_PROJECT_DIR/../../../third_party/executorch/cmake-out"
+export EXECUTORCH_USE_MPS=1
+
 FLUTTER_EXPORT_BUILD_ENVIRONMENT=(
   "$PODS_ROOT/../Flutter/ephemeral/flutter_export_environment.sh" # macOS
   "$PODS_ROOT/../Flutter/flutter_export_environment.sh" # iOS

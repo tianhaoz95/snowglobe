@@ -287,14 +287,23 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
 impl SseDecode for crate::api::simple::InitConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_vocabShards = <u32>::sse_decode(deserializer);
         let mut var_maxGenLen = <u32>::sse_decode(deserializer);
+        let mut var_useExecutorch = <bool>::sse_decode(deserializer);
         return crate::api::simple::InitConfig {
             vocab_shards: var_vocabShards,
             max_gen_len: var_maxGenLen,
+            use_executorch: var_useExecutorch,
         };
     }
 }
@@ -334,13 +343,6 @@ impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_i32::<NativeEndian>().unwrap()
-    }
-}
-
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
     }
 }
 
@@ -388,6 +390,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::simple::InitConfig {
         [
             self.vocab_shards.into_into_dart().into_dart(),
             self.max_gen_len.into_into_dart().into_dart(),
+            self.use_executorch.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -425,11 +428,19 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
 impl SseEncode for crate::api::simple::InitConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u32>::sse_encode(self.vocab_shards, serializer);
         <u32>::sse_encode(self.max_gen_len, serializer);
+        <bool>::sse_encode(self.use_executorch, serializer);
     }
 }
 
@@ -466,13 +477,6 @@ impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
     }
 }
 

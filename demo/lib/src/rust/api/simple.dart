@@ -42,11 +42,17 @@ Future<String> experimentalCompletionWithPte({
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
+  final bool useExecutorch;
 
-  const InitConfig({required this.vocabShards, required this.maxGenLen});
+  const InitConfig({
+    required this.vocabShards,
+    required this.maxGenLen,
+    required this.useExecutorch,
+  });
 
   @override
-  int get hashCode => vocabShards.hashCode ^ maxGenLen.hashCode;
+  int get hashCode =>
+      vocabShards.hashCode ^ maxGenLen.hashCode ^ useExecutorch.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -54,5 +60,6 @@ class InitConfig {
       other is InitConfig &&
           runtimeType == other.runtimeType &&
           vocabShards == other.vocabShards &&
-          maxGenLen == other.maxGenLen;
+          maxGenLen == other.maxGenLen &&
+          useExecutorch == other.useExecutorch;
 }

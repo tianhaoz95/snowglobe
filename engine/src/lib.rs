@@ -10,7 +10,7 @@ pub mod weight;
 pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b};
 
 use crate::layer::large_vocab::CHUNK_SIZE;
-use crate::model::{
+pub use crate::model::{
     InitConfig, KVCache, LoadedModel, Qwen, QwenConfig, QwenPte, QwenVariant,
 };
 use crate::weight::load_qwen_record;
