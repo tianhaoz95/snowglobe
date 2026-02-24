@@ -30,6 +30,7 @@ class _MyAppState extends State<MyApp> {
   // Engine status
   String? _engineErrorMessage;
   bool _isEngineReady = false;
+  bool _isRustLibInitialized = false;
   int _maxGenLen = 128;
 
   // Performance metrics
@@ -54,9 +55,12 @@ class _MyAppState extends State<MyApp> {
     });
 
     try {
-      print('Initializing Rust library...');
-      await RustLib.init();
-      print('Rust library initialized');
+      if (!_isRustLibInitialized) {
+        print('Initializing Rust library...');
+        await RustLib.init();
+        _isRustLibInitialized = true;
+        print('Rust library initialized');
+      }
 
       final backend = await checkBackend();
       print('Backend check: $backend');
@@ -79,9 +83,9 @@ class _MyAppState extends State<MyApp> {
 
       final initResult = await initEngine(
         cacheDir: cacheDir.path,
-        config: const InitConfig(
+        config: InitConfig(
           vocabShards: 8,
-          maxGenLen: 64,
+          maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
         ),
       );
@@ -185,9 +189,9 @@ class _MyAppState extends State<MyApp> {
 
       final initResult = await initEngine(
         cacheDir: cacheDir.path,
-        config: const InitConfig(
+        config: InitConfig(
           vocabShards: 8,
-          maxGenLen: 64,
+          maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
         ),
       );
@@ -513,6 +517,11 @@ class _MyAppState extends State<MyApp> {
                                     setState(() {
                                       _maxGenLen = value.round();
                                     });
+                                  },
+                            onChangeEnd: _isLoading
+                                ? null
+                                : (value) {
+                                    _initEngine();
                                   },
                           ),
                         ),
