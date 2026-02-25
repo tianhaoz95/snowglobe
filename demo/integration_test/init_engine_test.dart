@@ -11,7 +11,14 @@ void main() {
     try {
       await RustLib.init();
       final cacheDir = await getApplicationSupportDirectory();
-      await initEngine(cacheDir: cacheDir.path);
+      await initEngine(
+        cacheDir: cacheDir.path,
+        config: const InitConfig(
+          vocabShards: 8,
+          maxGenLen: 128,
+          useExecutorch: true,
+        ),
+      );
       print('Engine initialized successfully.');
     } catch (e, s) {
       print('Error during engine initialization: $e');
