@@ -92,8 +92,8 @@ void main() {
             }
             
             hasResponse = true;
-            // We don't break immediately so we can see some streaming action in logs
-            if (currentText.length > 50) break;
+            // Break if we found what we're looking for
+            if (currentText.toLowerCase().contains('beijing')) break;
           }
         }
       }
@@ -105,6 +105,7 @@ void main() {
 
     print('Generation finished. Final received text length: ${lastText.length}');
     expect(hasResponse, true, reason: 'Did not receive a non-empty response within 30 seconds');
+    expect(lastText.toLowerCase(), contains('beijing'), reason: 'Response did not contain "beijing"');
     print('CHAT TEST - SUCCESS');
   });
 }

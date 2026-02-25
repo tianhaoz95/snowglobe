@@ -42,7 +42,7 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _promptController = TextEditingController(
-      text: 'What are three interesting facts about snow globes?',
+      text: 'what is the capital of China?',
     );
     _initEngineFuture = _initEngine();
   }
@@ -319,6 +319,7 @@ class _MyAppState extends State<MyApp> {
       );
 
       await for (final token in tokenStream) {
+        if (!mounted) break;
         setState(() {
           _response += token;
           _tokenCount++;
