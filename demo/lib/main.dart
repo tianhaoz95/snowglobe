@@ -37,6 +37,7 @@ class _MyAppState extends State<MyApp> {
   int _tokenCount = 0;
   double _elapsedSeconds = 0;
   double _tokensPerSecond = 0;
+  double? _prefillTimeSeconds;
 
   @override
   void initState() {
@@ -306,6 +307,7 @@ class _MyAppState extends State<MyApp> {
       _tokenCount = 0;
       _elapsedSeconds = 0;
       _tokensPerSecond = 0;
+      _prefillTimeSeconds = null;
     });
 
     try {
@@ -320,12 +322,24 @@ class _MyAppState extends State<MyApp> {
 
       await for (final token in tokenStream) {
         if (!mounted) break;
+
+        if (_prefillTimeSeconds == null && token.isNotEmpty) {
+          _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+        }
+
         setState(() {
           _response += token;
           _tokenCount++;
           _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
-          if (_elapsedSeconds > 0) {
-            _tokensPerSecond = _tokenCount / _elapsedSeconds;
+
+          // Generation speed calculation (tok/s after prefill)
+          if (_prefillTimeSeconds != null) {
+            final generationSeconds = _elapsedSeconds - _prefillTimeSeconds!;
+            if (generationSeconds > 0) {
+              _tokensPerSecond = _tokenCount / generationSeconds;
+            } else {
+              _tokensPerSecond = 0;
+            }
           }
         });
       }
@@ -648,6 +662,13 @@ class _MyAppState extends State<MyApp> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _buildMetricItem(
+            Icons.bolt,
+            _prefillTimeSeconds != null
+                ? '${_prefillTimeSeconds!.toStringAsFixed(2)}s'
+                : 'Prefilling...',
+            colorScheme.onSurfaceVariant,
+          ),
+          _buildMetricItem(
             Icons.speed,
             '${_tokensPerSecond.toStringAsFixed(1)} tok/s',
             colorScheme.primary,
@@ -656,11 +677,6 @@ class _MyAppState extends State<MyApp> {
             Icons.numbers,
             '$_tokenCount tokens',
             colorScheme.secondary,
-          ),
-          _buildMetricItem(
-            Icons.timer,
-            '${_elapsedSeconds.toStringAsFixed(1)}s',
-            colorScheme.tertiary,
           ),
         ],
       ),

@@ -103,7 +103,31 @@ void main() {
       rethrow;
     }
 
-    print('Generation finished. Final received text length: ${lastText.length}');
+    // Capture metrics from the UI
+    final prefillFinder = find.byIcon(Icons.bolt);
+    final speedFinder = find.textContaining('tok/s');
+    
+    String prefillLog = "Unknown";
+    String speedLog = "Unknown";
+    
+    if (prefillFinder.evaluate().isNotEmpty) {
+      // Find the text widget that is a sibling or child in the metric item
+      // In our implementation, _buildMetricItem puts them in a Row
+      final Row metricRow = tester.widget<Row>(find.ancestor(of: prefillFinder, matching: find.byType(Row)).first);
+      final Text textWidget = metricRow.children.last as Text;
+      prefillLog = textWidget.data ?? "Unknown";
+    }
+    if (speedFinder.evaluate().isNotEmpty) {
+      speedLog = tester.widget<Text>(speedFinder.first).data ?? "Unknown";
+    }
+
+    print('------------------------------------------------------------');
+    print('PERFORMANCE METRICS:');
+    print('Prefill: $prefillLog');
+    print('Generation Speed: $speedLog');
+    print('Total Text Length: ${lastText.length}');
+    print('------------------------------------------------------------');
+
     expect(hasResponse, true, reason: 'Did not receive a non-empty response within 30 seconds');
     expect(lastText.toLowerCase(), contains('beijing'), reason: 'Response did not contain "beijing"');
     print('CHAT TEST - SUCCESS');
