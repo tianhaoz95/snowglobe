@@ -56,7 +56,26 @@ To run inference using ExecuTorch `.pte` models:
    EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
    cargo test tests::test_one_plus_one_pte --release -- --nocapture
    ```
+
+### Integration Testing (Flutter Demo)
+To verify the full integration between the Flutter UI and the Rust core, including model downloading and streaming inference, run the chat integration test:
+
+```bash
+cd demo
+# Run on MacOS (with Metal Acceleration for ExecuTorch)
+EXECUTORCH_USE_MPS=1 flutter test integration_test/chat_test.dart -d macos
+
+# Run on Android
+flutter test integration_test/chat_test.dart -d <device_id>
 ```
+
+#### Interpreting Logs
+The test provides detailed feedback during execution:
+- **CHAT TEST - RUNTIME INFO**: Identifies the active hardware backend (e.g., CPU/GPU) and the orchestration framework (Burn vs. ExecuTorch).
+- **PERFORMANCE METRICS**:
+    - **Prefill**: The "Time to First Token" (TTFT) in seconds.
+    - **Generation Speed**: The sustained inference speed in tokens per second (tok/s).
+- **Received tokens**: Shows the real-time stream of the model's response to the default prompt ("what is the capital of China?").
 
 ## Tech Stack
 
