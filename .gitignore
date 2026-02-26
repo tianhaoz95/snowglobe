@@ -2,3 +2,12 @@
 /.venv
 *.pte
 .DS_Store
+*.log
+
+# ExecuTorch and Android Build Artifacts
+/executorch-android/
+
+# Temporary and Test data
+/demo/tmp/
+/engine/tmp/
+/tmp/

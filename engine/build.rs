@@ -11,6 +11,8 @@ fn main() {
             Some(libs_path.join("arm64-v8a"))
         } else if target.contains("x86_64-linux-android") {
             Some(libs_path.join("x86_64"))
+        } else if target.contains("i686-linux-android") {
+            Some(libs_path.join("x86"))
         } else if target.contains("armv7-linux-androideabi") {
             Some(libs_path.join("armeabi-v7a"))
         } else {
@@ -29,6 +31,8 @@ fn main() {
         if module_path.exists() {
             println!("cargo:rustc-link-search=native={}", module_path.display());
             println!("cargo:rustc-link-lib=static=extension_module");
+        } else if search_base.join("libextension_module.a").exists() {
+            println!("cargo:rustc-link-lib=static=extension_module");
         }
 
         let data_loader_path = search_base.join("extension/data_loader");
@@ -37,6 +41,8 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 data_loader_path.display()
             );
+            println!("cargo:rustc-link-lib=static=extension_data_loader");
+        } else if search_base.join("libextension_data_loader.a").exists() {
             println!("cargo:rustc-link-lib=static=extension_data_loader");
         }
 
@@ -47,6 +53,8 @@ fn main() {
                 named_data_map_path.display()
             );
             println!("cargo:rustc-link-lib=static=extension_named_data_map");
+        } else if search_base.join("libextension_named_data_map.a").exists() {
+            println!("cargo:rustc-link-lib=static=extension_named_data_map");
         }
 
         let flat_tensor_path = search_base.join("extension/flat_tensor");
@@ -56,6 +64,8 @@ fn main() {
                 flat_tensor_path.display()
             );
             println!("cargo:rustc-link-lib=static=extension_flat_tensor");
+        } else if search_base.join("libextension_flat_tensor.a").exists() {
+            println!("cargo:rustc-link-lib=static=extension_flat_tensor");
         }
 
         let threadpool_path = search_base.join("extension/threadpool");
@@ -64,6 +74,8 @@ fn main() {
                 "cargo:rustc-link-search=native={}",
                 threadpool_path.display()
             );
+            println!("cargo:rustc-link-lib=static=extension_threadpool");
+        } else if search_base.join("libextension_threadpool.a").exists() {
             println!("cargo:rustc-link-lib=static=extension_threadpool");
         }
 
@@ -79,37 +91,43 @@ fn main() {
 
         // XNNPACK
         let xnnpack_path = search_base.join("backends/xnnpack");
-        if xnnpack_path.exists() {
-            println!(
-                "cargo:warning=✅ XNNPACK PATH FOUND AT: {}",
-                xnnpack_path.display()
-            );
-            println!("cargo:rustc-link-search=native={}", xnnpack_path.display());
+        if xnnpack_path.exists() || search_base.join("libxnnpack_backend.a").exists() {
+            if xnnpack_path.exists() {
+                println!("cargo:rustc-link-search=native={}", xnnpack_path.display());
+            }
             println!("cargo:rustc-link-lib=static:+whole-archive=xnnpack_backend");
 
-            let xnn_third_party = xnnpack_path.join("third-party/XNNPACK");
-            if xnn_third_party.exists() {
-                println!(
-                    "cargo:rustc-link-search=native={}",
-                    xnn_third_party.display()
-                );
-                println!("cargo:rustc-link-lib=static=XNNPACK");
-                println!("cargo:rustc-link-lib=static=xnnpack-microkernels-prod");
+            // Handle sub-libraries (might be in third-party/ or directly in search_base)
+            if search_base.join("libXNNPACK.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=XNNPACK");
+                println!("cargo:rustc-link-lib=static:+whole-archive=xnnpack-microkernels-prod");
+            } else {
+                let xnn_third_party = xnnpack_path.join("third-party/XNNPACK");
+                if xnn_third_party.exists() {
+                    println!("cargo:rustc-link-search=native={}", xnn_third_party.display());
+                    println!("cargo:rustc-link-lib=static:+whole-archive=XNNPACK");
+                    println!("cargo:rustc-link-lib=static:+whole-archive=xnnpack-microkernels-prod");
+                }
             }
 
-            let pthreadpool_path = xnnpack_path.join("third-party/pthreadpool");
-            if pthreadpool_path.exists() {
-                println!(
-                    "cargo:rustc-link-search=native={}",
-                    pthreadpool_path.display()
-                );
-                println!("cargo:rustc-link-lib=static=pthreadpool");
+            if search_base.join("libpthreadpool.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=pthreadpool");
+            } else {
+                let pthreadpool_path = xnnpack_path.join("third-party/pthreadpool");
+                if pthreadpool_path.exists() {
+                    println!("cargo:rustc-link-search=native={}", pthreadpool_path.display());
+                    println!("cargo:rustc-link-lib=static:+whole-archive=pthreadpool");
+                }
             }
 
-            let cpuinfo_path = xnnpack_path.join("third-party/cpuinfo");
-            if cpuinfo_path.exists() {
-                println!("cargo:rustc-link-search=native={}", cpuinfo_path.display());
-                println!("cargo:rustc-link-lib=static=cpuinfo");
+            if search_base.join("libcpuinfo.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=cpuinfo");
+            } else {
+                let cpuinfo_path = xnnpack_path.join("third-party/cpuinfo");
+                if cpuinfo_path.exists() {
+                    println!("cargo:rustc-link-search=native={}", cpuinfo_path.display());
+                    println!("cargo:rustc-link-lib=static:+whole-archive=cpuinfo");
+                }
             }
         }
 
@@ -117,23 +135,42 @@ fn main() {
         if kleidiai_path.exists() {
             println!("cargo:rustc-link-search=native={}", kleidiai_path.display());
             println!("cargo:rustc-link-lib=static=kleidiai");
+        } else if search_base.join("libkleidiai.a").exists() {
+            println!("cargo:rustc-link-lib=static=kleidiai");
+        }
+
+        // Qualcomm QNN
+        let qualcomm_path = search_base.join("backends/qualcomm");
+        if qualcomm_path.exists() || search_base.join("libqnn_executorch_backend.a").exists() || search_base.join("libqnn_executorch_backend.so").exists() {
+            if qualcomm_path.exists() {
+                println!("cargo:rustc-link-search=native={}", qualcomm_path.display());
+            }
+            if search_base.join("libqnn_executorch_backend.a").exists() || qualcomm_path.join("libqnn_executorch_backend.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=qnn_executorch_backend");
+            } else if search_base.join("libqnn_executorch_backend.so").exists() || qualcomm_path.join("libqnn_executorch_backend.so").exists() {
+                println!("cargo:rustc-link-lib=dylib=qnn_executorch_backend");
+            }
         }
 
         // --- Kernels ---
         let portable_path = search_base.join("kernels/portable");
-        if portable_path.exists() {
-            println!("cargo:rustc-link-search=native={}", portable_path.display());
+        if portable_path.exists() || search_base.join("libportable_kernels.a").exists() {
+            if portable_path.exists() {
+                println!("cargo:rustc-link-search=native={}", portable_path.display());
+            }
             // Kernels DO need whole-archive for static registration
             println!("cargo:rustc-link-lib=static:+whole-archive=portable_kernels");
             println!("cargo:rustc-link-lib=static=portable_ops_lib");
         }
 
         let optimized_path = search_base.join("kernels/optimized");
-        if optimized_path.exists() {
-            println!(
-                "cargo:rustc-link-search=native={}",
-                optimized_path.display()
-            );
+        if optimized_path.exists() || search_base.join("liboptimized_kernels.a").exists() {
+            if optimized_path.exists() {
+                println!(
+                    "cargo:rustc-link-search=native={}",
+                    optimized_path.display()
+                );
+            }
             println!("cargo:rustc-link-lib=static:+whole-archive=optimized_kernels");
         }
 
@@ -152,7 +189,12 @@ fn main() {
         let c10_include = base_dir.join("runtime/core/portable_type/c10");
         let mps_include = base_dir.join("backends/apple/mps");
         let pthreadpool_include = base_dir.join("backends/xnnpack/third-party/pthreadpool/include");
+        let cpuinfo_include = base_dir.join("backends/xnnpack/third-party/cpuinfo/include");
 
+        // Try to find the actual ExecuTorch source for headers
+        let project_root = std::env::current_dir().unwrap().parent().unwrap().to_path_buf();
+        let et_root = project_root.join("third_party/executorch");
+        
         let mut build = cc::Build::new();
         build
             .cpp(true)
@@ -163,6 +205,12 @@ fn main() {
             .include(&c10_include)
             .include(&mps_include)
             .include(&pthreadpool_include)
+            .include(&cpuinfo_include)
+            .include(&project_root.join("third_party")) // Allow <executorch/...>
+            .include(&et_root)
+            .include(&et_root.join("runtime/core/portable_type/c10")) // Allow <c10/...>
+            .include(&et_root.join("backends/xnnpack/third-party/pthreadpool/include"))
+            .include(&et_root.join("backends/xnnpack/third-party/cpuinfo/include"))
             .define("C10_USING_CUSTOM_GENERATED_MACROS", None)
             .flag("-std=c++17")
             .flag("-fno-aligned-allocation")

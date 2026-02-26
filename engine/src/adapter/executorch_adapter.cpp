@@ -92,13 +92,15 @@ int32_t executorch_module_forward(
     auto forward_start = std::chrono::steady_clock::now();
     auto result = module->module->forward(inputs);
     if (!result.ok()) {
-        fprintf(stderr, "[CPP] Forward failed with error %d\n", (int)result.error());
+        fprintf(stderr, "[CPP] Forward failed with error %d (0x%x)\n", (int)result.error(), (unsigned int)result.error());
         fflush(stderr);
         return -2;
     }
     auto forward_end = std::chrono::steady_clock::now();
 
     // 3. Process Output
+    fprintf(stderr, "[CPP] Processing outputs...\n");
+    fflush(stderr);
     auto outputs = result.get();
     if (outputs.empty()) {
         fprintf(stderr, "[CPP] Forward returned empty outputs\n");

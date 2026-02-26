@@ -249,9 +249,18 @@ class _MyAppState extends State<MyApp> {
       if (!await File(modelPath).exists()) {
         if (USE_EXECUTORCH) {
           final localPte = File('../qwen3_0.6b.pte');
+          final androidPte = File('/data/local/tmp/snowglobe/model.pte');
+          final androidExternalPte = File('/sdcard/Android/data/com.example.snowglobedemo/cache/model.pte');
+          
           if (await localPte.exists()) {
             setState(() => _response = 'Copying local model.pte...');
             await localPte.copy(modelPath);
+          } else if (Platform.isAndroid && await androidPte.exists()) {
+            setState(() => _response = 'Copying model.pte from /data/local/tmp...');
+            await androidPte.copy(modelPath);
+          } else if (Platform.isAndroid && await androidExternalPte.exists()) {
+            setState(() => _response = 'Copying model.pte from external storage...');
+            await androidExternalPte.copy(modelPath);
           } else {
             return false;
           }

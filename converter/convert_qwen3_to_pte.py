@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+# Add executorch root to sys.path
+sys.path.append(str(Path(__file__).parent.parent / "third_party" / "executorch"))
+
 import logging
 import torch._logging
 
@@ -20,6 +25,18 @@ from executorch.exir import EdgeCompileConfig, to_edge
 from torch.export import export
 from executorch.backends.apple.mps.partition.mps_partitioner import MPSPartitioner, CompileSpec as MPSCompileSpec
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
+qnn_import_error = None
+try:
+    from executorch.backends.qualcomm.partition.qnn_partitioner import QnnPartitioner
+    from executorch.backends.qualcomm.serialization.qc_schema import QcomChipset
+    from executorch.backends.qualcomm.utils.utils import (
+        generate_qnn_executorch_compiler_spec,
+        generate_htp_compiler_spec,
+        to_edge_transform_and_lower_to_qnn,
+    )
+except ImportError as e:
+    QnnPartitioner = None
+    qnn_import_error = e
 
 from transformers import AutoTokenizer
 
@@ -200,7 +217,7 @@ class Qwen3ForCausalLM(nn.Module):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", type=str, choices=["mps", "xnnpack"], default="mps")
+    parser.add_argument("--backend", type=str, choices=["mps", "xnnpack", "qualcomm", "portable"], default="mps")
     args = parser.parse_args()
 
     repo_id = "Qwen/Qwen3-0.6B"
@@ -213,8 +230,8 @@ def main():
     state_dict = load_file(model_path)
 
     print("Initializing model...")
-    # Use float16 for MPS to avoid type mismatches and improve performance
-    model_dtype = torch.float16 if args.backend == "mps" else torch.float32
+    # Use float16 for MPS and Qualcomm to avoid type mismatches and improve performance
+    model_dtype = torch.float16 if args.backend in ["mps", "qualcomm"] else torch.float32
     model = Qwen3ForCausalLM(config).to(model_dtype)
     # Fix keys if necessary (Safetensors usually match but sometimes there's a prefix)
     model.load_state_dict(state_dict, strict=True)
@@ -253,14 +270,45 @@ def main():
     with torch.no_grad():
         exported_model = export(model, (example_input,))
 
-    # 2. Lower to Edge
-    edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=True))
-
     if args.backend == "mps":
         print("Partitioning for MPS...")
+        # 2. Lower to Edge
+        edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=True))
         edge_program = edge_program.to_backend(MPSPartitioner([]))
+    elif args.backend == "qualcomm":
+        print("Partitioning for Qualcomm (Snapdragon 8 Gen 2 / SM8550)...")
+        if QnnPartitioner is None:
+            print(f"\n❌ Error importing Qualcomm backend: {qnn_import_error}")
+            print("\nNOTE: Qualcomm AOT model conversion requires:")
+            print("1. A Linux host (Ubuntu 22.04+). macOS is NOT supported for Qualcomm AOT.")
+            print("2. Building the ExecuTorch Qualcomm backend (including PyQnnManagerAdaptor).")
+            print("3. QNN SDK installed and LD_LIBRARY_PATH set.")
+            sys.exit(1)
+        
+        # HTP Compiler Configuration
+        backend_options = generate_htp_compiler_spec(use_fp16=True)
+
+        # QNN Compiler Spec
+        compile_spec = generate_qnn_executorch_compiler_spec(
+            soc_model=QcomChipset.SM8550,
+            backend_options=backend_options,
+        )
+
+        # Lower to QNN backend using the dedicated utility
+        edge_program = to_edge_transform_and_lower_to_qnn(
+            model,
+            (example_input,),
+            compile_spec
+        )
+    elif args.backend == "portable":
+        print("Using Portable kernels (CPU fallback)...")
+        # 2. Lower to Edge
+        edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=True))
+        # No partitioning needed
     else:
         print("Partitioning for XNNPACK...")
+        # 2. Lower to Edge
+        edge_program = to_edge(exported_model, compile_config=EdgeCompileConfig(_check_ir_validity=True))
         edge_program = edge_program.to_backend(XnnpackPartitioner())
 
     print("\nAnalyzing delegation success...")
