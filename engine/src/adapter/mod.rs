@@ -3,6 +3,7 @@ use std::ffi::{CString, c_char, c_void};
 #[repr(C)]
 struct ExecuTorchModuleOpaque(c_void);
 
+#[cfg(has_executorch)]
 unsafe extern "C" {
     fn executorch_module_load(pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque;
     fn executorch_module_destroy(module: *mut ExecuTorchModuleOpaque);
@@ -14,6 +15,26 @@ unsafe extern "C" {
         output_logits: *mut f32,
         output_vocab_size: *mut usize,
     ) -> i32;
+}
+
+#[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_load(_pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque {
+    std::ptr::null_mut()
+}
+
+#[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_destroy(_module: *mut ExecuTorchModuleOpaque) {}
+
+#[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_forward(
+    _module: *mut ExecuTorchModuleOpaque,
+    _input_tokens: *const c_void,
+    _input_len: usize,
+    _use_int32: i32,
+    _output_logits: *mut f32,
+    _output_vocab_size: *mut usize,
+) -> i32 {
+    -1
 }
 
 #[derive(Debug)]

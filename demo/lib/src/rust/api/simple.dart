@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `FrbSink`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add`, `from`
 
 Future<String> initEngine({
   required String cacheDir,
@@ -41,20 +41,27 @@ Future<String> experimentalCompletionWithPte({
   prompt: prompt,
 );
 
+enum BackendType { burn, execuTorch, llamaCpp }
+
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
   final bool useExecutorch;
+  final BackendType backend;
 
   const InitConfig({
     required this.vocabShards,
     required this.maxGenLen,
     required this.useExecutorch,
+    required this.backend,
   });
 
   @override
   int get hashCode =>
-      vocabShards.hashCode ^ maxGenLen.hashCode ^ useExecutorch.hashCode;
+      vocabShards.hashCode ^
+      maxGenLen.hashCode ^
+      useExecutorch.hashCode ^
+      backend.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -63,5 +70,6 @@ class InitConfig {
           runtimeType == other.runtimeType &&
           vocabShards == other.vocabShards &&
           maxGenLen == other.maxGenLen &&
-          useExecutorch == other.useExecutorch;
+          useExecutorch == other.useExecutorch &&
+          backend == other.backend;
 }

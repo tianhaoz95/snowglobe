@@ -293,10 +293,30 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for crate::api::simple::BackendType {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::simple::BackendType::Burn,
+            1 => crate::api::simple::BackendType::ExecuTorch,
+            2 => crate::api::simple::BackendType::LlamaCpp,
+            _ => unreachable!("Invalid variant for BackendType: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
+impl SseDecode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
     }
 }
 
@@ -306,10 +326,12 @@ impl SseDecode for crate::api::simple::InitConfig {
         let mut var_vocabShards = <u32>::sse_decode(deserializer);
         let mut var_maxGenLen = <u32>::sse_decode(deserializer);
         let mut var_useExecutorch = <bool>::sse_decode(deserializer);
+        let mut var_backend = <crate::api::simple::BackendType>::sse_decode(deserializer);
         return crate::api::simple::InitConfig {
             vocab_shards: var_vocabShards,
             max_gen_len: var_maxGenLen,
             use_executorch: var_useExecutorch,
+            backend: var_backend,
         };
     }
 }
@@ -343,13 +365,6 @@ impl SseDecode for u8 {
 impl SseDecode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
-}
-
-impl SseDecode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
-    }
 }
 
 fn pde_ffi_dispatcher_primary_impl(
@@ -391,12 +406,35 @@ fn pde_ffi_dispatcher_sync_impl(
 // Section: rust2dart
 
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::simple::BackendType {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Burn => 0.into_dart(),
+            Self::ExecuTorch => 1.into_dart(),
+            Self::LlamaCpp => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::simple::BackendType
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::simple::BackendType>
+    for crate::api::simple::BackendType
+{
+    fn into_into_dart(self) -> crate::api::simple::BackendType {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::simple::InitConfig {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.vocab_shards.into_into_dart().into_dart(),
             self.max_gen_len.into_into_dart().into_dart(),
             self.use_executorch.into_into_dart().into_dart(),
+            self.backend.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -434,10 +472,34 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for crate::api::simple::BackendType {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::simple::BackendType::Burn => 0,
+                crate::api::simple::BackendType::ExecuTorch => 1,
+                crate::api::simple::BackendType::LlamaCpp => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
+impl SseEncode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
     }
 }
 
@@ -447,6 +509,7 @@ impl SseEncode for crate::api::simple::InitConfig {
         <u32>::sse_encode(self.vocab_shards, serializer);
         <u32>::sse_encode(self.max_gen_len, serializer);
         <bool>::sse_encode(self.use_executorch, serializer);
+        <crate::api::simple::BackendType>::sse_encode(self.backend, serializer);
     }
 }
 
@@ -477,13 +540,6 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
-}
-
-impl SseEncode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]

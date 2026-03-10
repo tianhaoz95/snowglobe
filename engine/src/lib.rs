@@ -7,12 +7,13 @@ pub mod rope;
 pub mod utils;
 pub mod weight;
 
-pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b};
+pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b, download_qwen_gguf};
 
 use crate::layer::large_vocab::CHUNK_SIZE;
 pub use crate::model::{
-    InitConfig, KVCache, LoadedModel, Qwen, QwenConfig, QwenPte, QwenVariant,
+    InitConfig, KVCache, LoadedModel, Qwen, QwenConfig, QwenPte, EngineVariant, BackendType
 };
+pub use crate::model::runner::{EngineSession, ModelRunner};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
 use burn::tensor::{Int, TensorData};
@@ -67,11 +68,7 @@ pub use backend_setup::Device;
 
 pub static GLOBAL_MODEL: OnceCell<LoadedModel<Backend>> = OnceCell::new();
 
-pub struct SessionState {
-    pub tokens: Vec<u32>,
-    pub cache: Option<Vec<KVCache<Backend>>>,
-    pub offset: usize,
-}
+pub type SessionState = EngineSession;
 
 pub static SESSIONS: OnceCell<DashMap<String, SessionState>> = OnceCell::new();
 
@@ -134,7 +131,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
     }
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
-    if init_config.use_executorch {
+    if init_config.use_executorch || init_config.backend == BackendType::ExecuTorch {
         let pte_path = Path::new(&cache_dir).join("model.pte");
         if !pte_path.exists() {
             return "PTE model file missing (model.pte).".to_string();
@@ -143,7 +140,23 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             .expect("Failed to load PTE model");
 
         let _ = GLOBAL_MODEL.set(LoadedModel {
-            model: Mutex::new(QwenVariant::ExecuTorch(model)),
+            model: Mutex::new(EngineVariant::ExecuTorch(Box::new(model))),
+            tokenizer,
+            config,
+            device,
+            init_config,
+        });
+    } else if init_config.backend == BackendType::LlamaCpp {
+        let gguf_path = Path::new(&cache_dir).join("model.gguf");
+        if !gguf_path.exists() {
+            return "GGUF model file missing (model.gguf).".to_string();
+        }
+        use crate::model::llama_cpp::LlamaCppRunner;
+        let model = LlamaCppRunner::load(&gguf_path, &init_config)
+            .expect("Failed to load LlamaCpp model");
+
+        let _ = GLOBAL_MODEL.set(LoadedModel {
+            model: Mutex::new(EngineVariant::LlamaCpp(model)),
             tokenizer,
             config,
             device,
@@ -172,7 +185,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         drop(file);
 
         let _ = GLOBAL_MODEL.set(LoadedModel {
-            model: Mutex::new(QwenVariant::Burn(model)),
+            model: Mutex::new(EngineVariant::Burn(Box::new(model))),
             tokenizer,
             config,
             device,
@@ -213,7 +226,7 @@ pub fn init_session() -> String {
 
     let state = SessionState {
         tokens: token_ids,
-        cache: None,
+        state: None,
         offset: 0,
     };
 
@@ -289,59 +302,18 @@ where
     };
 
     for _ in 0..generation_limit {
-        // 1. Process pending tokens
-        // For ExecuTorch, we pass the full sequence, but capped at 128 (model limit)
-        // For Burn, we only pass new tokens (offset..len)
-        let (start_idx, num_to_process) = if init_config.use_executorch {
-            let total_len = session_state.tokens.len();
-            let start = total_len.saturating_sub(128);
-            (start, total_len - start)
-        } else {
-            let start = session_state.offset;
-            (start, session_state.tokens.len() - start)
+        let logits = match &*model {
+            EngineVariant::Burn(m) => m.forward(&mut session_state)?,
+            EngineVariant::ExecuTorch(m) => m.forward(&mut session_state)?,
+            EngineVariant::LlamaCpp(m) => m.forward(&mut session_state)?,
         };
-        let num_new = session_state.tokens.len() - session_state.offset;
 
-        if num_new == 0 {
-            break;
-        }
-
-        let input_tensor: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(
-                session_state.tokens[start_idx..]
-                    .iter()
-                    .map(|&x| x as i32)
-                    .collect::<Vec<_>>(),
-                Shape::new([1, num_to_process]),
-            ),
-            device,
-        );
-
-        let (output, new_cache) = model.forward(
-            input_tensor,
-            session_state
-                .cache
-                .clone()
-                .map(|c| c.into_iter().map(Some).collect()),
-            session_state.offset,
-        );
-
-        session_state.cache = Some(new_cache);
-        session_state.offset += num_new;
-
-        let next_token_logits = output
-            .slice([
-                0..1,
-                (num_to_process - 1)..(num_to_process),
-                0..model_config.vocab_size,
-            ])
-            .reshape([1, model_config.vocab_size]);
-
-        let next_token_id = next_token_logits
-            .argmax(1)
-            .to_data()
-            .into_vec::<i32>()
-            .expect("GPU Sync Failed")[0] as u32;
+        let next_token_id = logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i as u32)
+            .unwrap();
 
         if next_token_id == im_end_id {
             break;
@@ -375,6 +347,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;
@@ -382,7 +355,6 @@ mod tests {
         let loaded_model = GLOBAL_MODEL.get().unwrap();
         let tokenizer = &loaded_model.tokenizer;
         let model = loaded_model.model.lock();
-        let device = &loaded_model.device;
 
         // Create a moderately long prompt to make the difference noticeable
         let prompt = "The quick brown fox jumps over the lazy dog. ".repeat(60);
@@ -391,61 +363,36 @@ mod tests {
         println!("Benchmark sequence length: {} tokens", n);
 
         // 1. Prefill to get initial cache
-        let input_prefill: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(
-                tokens.iter().map(|&x| x as i32).collect::<Vec<_>>(),
-                Shape::new([1, n]),
-            ),
-            device,
-        );
-        let (_, cache) = model.forward(input_prefill, None, 0);
+        let mut session_cached = EngineSession { tokens: tokens.clone(), offset: 0, state: None };
+        if let EngineVariant::Burn(m) = &*model {
+            let _ = m.forward(&mut session_cached).unwrap();
+        }
 
         // 2. Measure "With KV Cache" (Generating 1 token)
         let next_token_id = 1234u32;
-        let input_cached: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(vec![next_token_id as i32], Shape::new([1, 1])),
-            device,
-        );
-
-        // Warmup
-        for _ in 0..3 {
-            let _ = model.forward(
-                input_cached.clone(),
-                Some(cache.iter().cloned().map(Some).collect()),
-                n,
-            );
-        }
+        session_cached.tokens.push(next_token_id);
 
         let start_cached = std::time::Instant::now();
         let iterations = 10;
-        for _ in 0..iterations {
-            let _ = model.forward(
-                input_cached.clone(),
-                Some(cache.iter().cloned().map(Some).collect()),
-                n,
-            );
+        
+        if let EngineVariant::Burn(m) = &*model {
+            for _ in 0..iterations {
+                let _ = m.forward(&mut session_cached).unwrap();
+                session_cached.tokens.push(1234);
+            }
         }
         let duration_cached = start_cached.elapsed() / iterations;
 
         // 3. Measure "Without KV Cache" (Processing N+1 tokens from scratch)
         let mut tokens_full = tokens.clone();
         tokens_full.push(next_token_id);
-        let input_full: Tensor<Backend, 2, Int> = Tensor::from_data(
-            TensorData::new(
-                tokens_full.iter().map(|&x| x as i32).collect::<Vec<_>>(),
-                Shape::new([1, n + 1]),
-            ),
-            device,
-        );
-
-        // Warmup
-        for _ in 0..3 {
-            let _ = model.forward(input_full.clone(), None, 0);
-        }
 
         let start_full = std::time::Instant::now();
-        for _ in 0..iterations {
-            let _ = model.forward(input_full.clone(), None, 0);
+        if let EngineVariant::Burn(m) = &*model {
+            for _ in 0..iterations {
+                let mut fresh_session = EngineSession { tokens: tokens_full.clone(), offset: 0, state: None };
+                let _ = m.forward(&mut fresh_session).unwrap();
+            }
         }
         let duration_full = start_full.elapsed() / iterations;
 
@@ -454,8 +401,6 @@ mod tests {
         println!("Latency WITHOUT KV Cache: {:?}", duration_full);
         println!("Measured Speedup:         {:.2}x", speedup);
 
-        // With N tokens, the "Without KV Cache" forward pass should be significantly slower.
-        // We expect at least 2x speedup for this sequence length.
         assert!(
             speedup >= 2.0,
             "KV Cache speedup was only {:.2}x, expected >= 2.0x",
@@ -472,6 +417,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;
@@ -506,10 +452,73 @@ mod tests {
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
         if model == "qwen3" {
             download_qwen3_0_6b(cache_dir.to_string()).await;
+        } else if model == "gguf" {
+            download_qwen_gguf(cache_dir.to_string()).await;
         } else {
             download_qwen2_5_0_5b_instruct(cache_dir.to_string()).await;
         }
         cache_dir.to_string()
+    }
+
+    #[tokio::test]
+    async fn test_one_plus_one_gguf() {
+        let cache_dir = setup_test("./tmp/testing_gguf", "gguf").await;
+        
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::LlamaCpp,
+            },
+        )
+        .await;
+
+        let session_id = init_session();
+        let prompt = "what is 1+1? only answer with numbers";
+        let sink = TestSink(Mutex::new(String::new()));
+        
+        let result = generate_response(&session_id, prompt, 256, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert_eq!(response.trim(), "2");
+    }
+
+    #[tokio::test]
+    async fn test_multi_turn_gguf() {
+        let cache_dir = setup_test("./tmp/testing_gguf_multi", "gguf").await;
+        
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::LlamaCpp,
+            },
+        )
+        .await;
+
+        let session_id = init_session();
+        
+        let prompt1 = "My name is Bob. Remember that.";
+        let sink1 = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt1, 256, &sink1).unwrap();
+
+        let prompt2 = "What is my name?";
+        let sink2 = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt2, 256, &sink2).unwrap();
+
+        let response2 = sink2.0.lock().clone();
+        println!("Prompt 2: {}", prompt2);
+        println!("Response 2: {}", response2);
+
+        assert!(response2.contains("Bob"));
     }
 
     #[tokio::test]
@@ -533,6 +542,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: true,
+                backend: BackendType::ExecuTorch,
             },
         )
         .await;
@@ -561,6 +571,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;
@@ -587,6 +598,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;
@@ -613,6 +625,7 @@ mod tests {
                 vocab_shards: 0,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;
@@ -639,6 +652,7 @@ mod tests {
                 vocab_shards: 10,
                 max_gen_len: 256,
                 use_executorch: false,
+                backend: BackendType::Burn,
             },
         )
         .await;

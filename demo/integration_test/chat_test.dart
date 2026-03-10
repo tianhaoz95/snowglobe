@@ -37,7 +37,7 @@ void main() {
     print('CHAT TEST - RUNTIME INFO');
     print('------------------------------------------------------------');
     print('Main Backend (Burn/App): $backendString');
-    print('Framework Used: ${USE_EXECUTORCH ? "ExecuTorch (.pte)" : "Burn (.safetensors)"}');
+    print('Framework Used: ${USE_LLAMACPP ? "LlamaCpp (.gguf)" : (USE_EXECUTORCH ? "ExecuTorch (.pte)" : "Burn (.safetensors)")}');
     
     // Check for NPU/GPU backends in ExecuTorch if applicable
     if (USE_EXECUTORCH) {
@@ -47,8 +47,10 @@ void main() {
       } else if (Platform.isAndroid) {
         print('ExecuTorch Backend Context (Android): Potential NPU (NNAPI) or CPU (XNNPACK)');
       }
+    } else if (USE_LLAMACPP) {
+      print('LlamaCpp: Active (checking acceleration inside Rust core logs)');
     } else {
-      print('ExecuTorch: Not active (using Burn backend directly)');
+      print('ExecuTorch/LlamaCpp: Not active (using Burn backend directly)');
     }
     print('------------------------------------------------------------');
 

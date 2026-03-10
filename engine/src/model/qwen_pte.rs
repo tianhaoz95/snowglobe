@@ -95,9 +95,9 @@ impl<B: Backend> QwenPte<B> {
                 &B::Device::default(),
             );
 
-            let (output, _) = self.forward(input_tensor, None, 0);
+            let (output, _) = crate::model::Model::forward(self, input_tensor, None, 0);
 
-            let [_, seq_len, vocab_size] = output.dims();
+            let [_, seq_len, vocab_size]: [usize; 3] = output.dims();
             let next_token_id = output
                 .slice([0..1, (seq_len - 1)..(seq_len), 0..vocab_size])
                 .argmax(2)
@@ -177,3 +177,49 @@ impl<B: Backend> Model<B> for QwenPte<B> {
         (output, Vec::new())
     }
 }
+
+use crate::model::runner::{EngineSession, ModelRunner};
+
+impl<B: Backend> ModelRunner for QwenPte<B> {
+    fn load(path: &std::path::Path, _config: &crate::InitConfig) -> Result<Box<Self>, String> {
+        Ok(Box::new(Self::new(path.to_str().ok_or("Invalid path")?)?))
+    }
+
+    fn forward(
+        &self,
+        session: &mut EngineSession,
+    ) -> Result<Vec<f32>, String> {
+        let total_len = session.tokens.len();
+        let start = total_len.saturating_sub(128);
+        
+        let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
+        
+        let mut module = self.module.lock();
+        let (logits_vec, vocab_size) = if use_mps {
+            let mut input_tokens = vec![0i32; 128];
+            for (j, &token) in session.tokens[start..].iter().enumerate() {
+                if j < 128 { input_tokens[j] = token as i32; }
+            }
+            module.forward(&input_tokens)
+        } else {
+            let mut input_tokens = vec![0i64; 128];
+            for (j, &token) in session.tokens[start..].iter().enumerate() {
+                if j < 128 { input_tokens[j] = token as i64; }
+            }
+            module.forward(&input_tokens)
+        }.map_err(|e| format!("PTE forward failed: {}", e))?;
+
+        let num_processed = total_len - start;
+        let effective_seq_len = num_processed.min(128);
+
+        let start_idx = (effective_seq_len - 1) * vocab_size;
+        let end_idx = start_idx + vocab_size;
+
+        if logits_vec.len() >= end_idx {
+            Ok(logits_vec[start_idx..end_idx].to_vec())
+        } else {
+            Err("Logits vector too small".to_string())
+        }
+    }
+}
+

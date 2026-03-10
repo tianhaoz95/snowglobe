@@ -2,8 +2,20 @@ fn main() {
     println!("cargo:rerun-if-env-changed=EXECUTORCH_RS_EXECUTORCH_LIB_DIR");
     println!("cargo:rerun-if-changed=src/adapter/executorch_adapter.cpp");
     println!("cargo:rerun-if-changed=src/adapter/executorch_adapter.h");
+    
+    let target = std::env::var("TARGET").unwrap_or_default();
+    
+    // llama.cpp specific links
+    if target.contains("android") {
+        println!("cargo:rustc-link-lib=vulkan");
+    } else if target.contains("apple") {
+        println!("cargo:rustc-link-lib=framework=Metal");
+        println!("cargo:rustc-link-lib=framework=MetalKit");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rustc-link-lib=framework=Accelerate");
+    }
+
     if let Ok(libs_dir) = std::env::var("EXECUTORCH_RS_EXECUTORCH_LIB_DIR") {
-        let target = std::env::var("TARGET").unwrap_or_default();
         let libs_path = std::path::Path::new(&libs_dir);
 
         // If we are cross-compiling for Android, we might have architecture-specific subdirectories
@@ -221,5 +233,6 @@ fn main() {
         }
 
         build.compile("executorch_adapter");
+        println!("cargo:rustc-cfg=has_executorch");
     }
 }

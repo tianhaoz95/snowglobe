@@ -202,6 +202,55 @@ impl<B: Backend> Model<B> for Qwen<B> {
     }
 }
 
+use crate::model::runner::{EngineSession, ModelRunner};
+use burn::tensor::{Shape, TensorData};
+
+impl<B: Backend> ModelRunner for Qwen<B> {
+    fn load(_path: &std::path::Path, _config: &crate::InitConfig) -> Result<Box<Self>, String> {
+        Err("load not implemented for Qwen directly".to_string())
+    }
+
+    fn forward(
+        &self,
+        session: &mut EngineSession,
+    ) -> Result<Vec<f32>, String> {
+        let device = self.rms_norm.gamma.val().device();
+        let start = session.offset;
+        let num_new = session.tokens.len() - start;
+
+        if num_new == 0 {
+            return Err("No new tokens".to_string());
+        }
+
+        let input_tensor: Tensor<B, 2, Int> = Tensor::from_data(
+            TensorData::new(
+                session.tokens[start..]
+                    .iter()
+                    .map(|&x| x as i32)
+                    .collect::<Vec<_>>(),
+                Shape::new([1, num_new]),
+            ),
+            &device,
+        );
+
+        let cache = session.state.take().and_then(|s| {
+            s.downcast::<Vec<KVCache<B>>>().ok().map(|b| *b)
+        }).map(|c| c.into_iter().map(Some).collect());
+
+        let (output, new_cache) = Model::forward(self, input_tensor, cache, session.offset);
+
+        session.state = Some(Box::new(new_cache));
+        session.offset += num_new;
+
+        let [_, seq_len, vocab_size] = output.dims();
+        let next_token_logits = output
+            .slice([0..1, (seq_len - 1)..seq_len, 0..vocab_size])
+            .reshape([vocab_size]);
+
+        next_token_logits.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))
+    }
+}
+
 // Configuration for a single Qwen block (transformer layer).
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
 pub struct QwenBlockConfig {

@@ -1,5 +1,7 @@
 pub mod qwen;
 pub mod qwen_pte;
+pub mod runner;
+pub mod llama_cpp;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
@@ -13,35 +15,29 @@ pub struct KVCache<B: Backend> {
     pub value: Tensor<B, 4>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendType {
+    Burn,
+    ExecuTorch,
+    LlamaCpp,
+}
+
 #[derive(Debug, Clone)]
 pub struct InitConfig {
     pub vocab_shards: usize,
     pub max_gen_len: usize,
-    pub use_executorch: bool,
+    pub use_executorch: bool, // Deprecated, keep for backwards compat for now or replace entirely
+    pub backend: BackendType,
 }
 
-#[derive(Debug, Clone)]
-pub enum QwenVariant<B: Backend> {
-    Burn(Qwen<B>),
-    ExecuTorch(QwenPte<B>),
-}
-
-impl<B: Backend> QwenVariant<B> {
-    pub fn forward(
-        &self,
-        input: Tensor<B, 2, Int>,
-        cache: Option<Vec<Option<KVCache<B>>>>,
-        offset: usize,
-    ) -> (Tensor<B, 3>, Vec<KVCache<B>>) {
-        match self {
-            QwenVariant::Burn(m) => m.forward(input, cache, offset),
-            QwenVariant::ExecuTorch(m) => m.forward(input, cache, offset),
-        }
-    }
+pub enum EngineVariant {
+    Burn(Box<dyn runner::ModelRunner>),
+    ExecuTorch(Box<dyn runner::ModelRunner>),
+    LlamaCpp(Box<dyn runner::ModelRunner>),
 }
 
 pub struct LoadedModel<B: Backend> {
-    pub model: Mutex<QwenVariant<B>>,
+    pub model: Mutex<EngineVariant>,
     pub tokenizer: Tokenizer,
     pub config: QwenConfig,
     pub device: B::Device,

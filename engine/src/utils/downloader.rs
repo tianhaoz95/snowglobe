@@ -54,6 +54,40 @@ pub async fn download_qwen3_0_6b(cache_dir: String) -> String {
     .await
 }
 
+pub async fn download_qwen_gguf(cache_dir: String) -> String {
+    let model_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf";
+    let tokenizer_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
+    let config_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json";
+    
+    let model_path = Path::new(&cache_dir).join("model.gguf");
+    let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");
+    let config_path = Path::new(&cache_dir).join("config.json");
+
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        return format!("Permission error: {}", e);
+    }
+
+    if !model_path.exists() {
+        if let Err(e) = download_file(&model_url, &model_path).await {
+            return e;
+        }
+    }
+
+    if !tokenizer_path.exists() {
+        if let Err(e) = download_file(&tokenizer_url, &tokenizer_path).await {
+            return e;
+        }
+    }
+
+    if !config_path.exists() {
+        if let Err(e) = download_file(&config_url, &config_path).await {
+            return e;
+        }
+    }
+
+    "Success".to_string()
+}
+
 pub async fn download_model(
     cache_dir: String,
     model_url: String,

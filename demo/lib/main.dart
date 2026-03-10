@@ -7,7 +7,8 @@ import 'package:snowglobedemo/src/rust/frb_generated.dart';
 import 'dart:io';
 
 const bool USE_QWEN3 = true;
-const bool USE_EXECUTORCH = true;
+const bool USE_EXECUTORCH = bool.fromEnvironment('USE_EXECUTORCH', defaultValue: false);
+const bool USE_LLAMACPP = bool.fromEnvironment('USE_LLAMACPP', defaultValue: true);
 
 void main() {
   runApp(const MyApp());
@@ -88,6 +89,9 @@ class _MyAppState extends State<MyApp> {
           vocabShards: 8,
           maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
+          backend: USE_LLAMACPP 
+              ? BackendType.llamaCpp 
+              : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
         ),
       );
       print('Engine initialized: $initResult');
@@ -113,6 +117,7 @@ class _MyAppState extends State<MyApp> {
     final files = [
       File('${cacheDir.path}/model.safetensors'),
       File('${cacheDir.path}/model.pte'),
+      File('${cacheDir.path}/model.gguf'),
       File('${cacheDir.path}/tokenizer.json'),
       File('${cacheDir.path}/config.json'),
     ];
@@ -175,10 +180,14 @@ class _MyAppState extends State<MyApp> {
       String targetName;
       if (extension == 'pte') {
         targetName = 'model.pte';
+      } else if (extension == 'gguf') {
+        targetName = 'model.gguf';
       } else if (extension == 'safetensors') {
         targetName = 'model.safetensors';
       } else {
-        targetName = USE_EXECUTORCH ? 'model.pte' : 'model.safetensors';
+        targetName = USE_LLAMACPP 
+            ? 'model.gguf'
+            : (USE_EXECUTORCH ? 'model.pte' : 'model.safetensors');
       }
 
       final targetPath = '${cacheDir.path}/$targetName';
@@ -194,6 +203,9 @@ class _MyAppState extends State<MyApp> {
           vocabShards: 8,
           maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
+          backend: USE_LLAMACPP 
+              ? BackendType.llamaCpp 
+              : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
         ),
       );
       _sessionId = await initSession();
@@ -233,9 +245,11 @@ class _MyAppState extends State<MyApp> {
     final tokenizerUrl = USE_QWEN3 ? qwen3TokenizerUrl : qwen2_5TokenizerUrl;
     final configUrl = USE_QWEN3 ? qwen3ConfigUrl : qwen2_5ConfigUrl;
 
-    final modelPath = USE_EXECUTORCH
-        ? '$cacheDir/model.pte'
-        : '$cacheDir/model.safetensors';
+    final modelPath = USE_LLAMACPP 
+        ? '$cacheDir/model.gguf'
+        : (USE_EXECUTORCH
+            ? '$cacheDir/model.pte'
+            : '$cacheDir/model.safetensors');
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
 
@@ -247,7 +261,21 @@ class _MyAppState extends State<MyApp> {
         await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
       }
       if (!await File(modelPath).exists()) {
-        if (USE_EXECUTORCH) {
+        if (USE_LLAMACPP) {
+          const ggufUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
+          final localGguf = File('../model.gguf');
+          final androidGguf = File('/data/local/tmp/snowglobe/model.gguf');
+          
+          if (await localGguf.exists()) {
+            setState(() => _response = 'Copying local model.gguf...');
+            await localGguf.copy(modelPath);
+          } else if (Platform.isAndroid && await androidGguf.exists()) {
+            setState(() => _response = 'Copying model.gguf from /data/local/tmp...');
+            await androidGguf.copy(modelPath);
+          } else {
+            await _downloadFile(ggufUrl, modelPath, 'Model weights (GGUF)');
+          }
+        } else if (USE_EXECUTORCH) {
           final localPte = File('../qwen3_0.6b.pte');
           final androidPte = File('/data/local/tmp/snowglobe/model.pte');
           final androidExternalPte = File('/sdcard/Android/data/com.example.snowglobedemo/cache/model.pte');
