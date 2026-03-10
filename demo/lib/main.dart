@@ -95,16 +95,45 @@ class _MyAppState extends State<MyApp> {
         ),
       );
       print('Engine initialized: $initResult');
+      
+      if (initResult != 'Success') {
+        throw Exception(initResult);
+      }
+
       _sessionId = await initSession();
+      if (_sessionId!.startsWith('Error:')) {
+        throw Exception(_sessionId);
+      }
       setState(() {
         _isEngineReady = true;
         _response = 'System ready. Let\'s chat!';
       });
     } catch (e) {
       print('Initialization error: $e');
+      final errorStr = e.toString();
       setState(() {
         _engineErrorMessage = 'Failed to initialize engine: $e';
       });
+      
+      // Auto-cleanup corrupted files if detected
+      try {
+        final cacheDir = await getApplicationSupportDirectory();
+        if (errorStr.contains('tokenizer.json')) {
+          final f = File('${cacheDir.path}/tokenizer.json');
+          if (await f.exists()) await f.delete();
+        } else if (errorStr.contains('config.json')) {
+          final f = File('${cacheDir.path}/config.json');
+          if (await f.exists()) await f.delete();
+        } else if (errorStr.contains('model.safetensors')) {
+          final f = File('${cacheDir.path}/model.safetensors');
+          if (await f.exists()) await f.delete();
+        } else if (errorStr.contains('GGUF model file missing') || errorStr.contains('LlamaCpp model')) {
+          final f = File('${cacheDir.path}/model.gguf');
+          if (await f.exists()) await f.delete();
+        }
+      } catch (cleanupError) {
+        print('Error during auto-cleanup: $cleanupError');
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -305,33 +334,50 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _downloadFile(String url, String savePath, String label) async {
     final httpClient = HttpClient();
+    final tempPath = '$savePath.tmp';
     try {
       final request = await httpClient.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode == 200) {
         final contentLength = response.contentLength;
         int downloaded = 0;
-        final file = File(savePath);
+        final file = File(tempPath);
         final sink = file.openWrite();
 
-        await for (var chunk in response) {
-          downloaded += chunk.length;
-          sink.add(chunk);
-          if (contentLength > 0) {
-            final progress = (downloaded / contentLength * 100).toStringAsFixed(
-              1,
-            );
-            setState(() {
-              _response = 'Fetching $label... ($progress%)';
-            });
+        try {
+          await for (var chunk in response) {
+            downloaded += chunk.length;
+            sink.add(chunk);
+            if (contentLength > 0) {
+              final progress = (downloaded / contentLength * 100).toStringAsFixed(
+                1,
+              );
+              setState(() {
+                _response = 'Fetching $label... ($progress%)';
+              });
+            }
           }
+          await sink.close();
+          // Rename temp file to final path upon success
+          await File(tempPath).rename(savePath);
+        } catch (e) {
+          await sink.close();
+          if (await File(tempPath).exists()) {
+            await File(tempPath).delete();
+          }
+          rethrow;
         }
-        await sink.close();
       } else {
         throw Exception('Failed to download $label: HTTP ${response.statusCode}');
       }
     } finally {
       httpClient.close();
+      // Ensure cleanup of temp file if it still exists
+      if (await File(tempPath).exists()) {
+        try {
+          await File(tempPath).delete();
+        } catch (_) {}
+      }
     }
   }
 

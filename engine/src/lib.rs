@@ -113,8 +113,14 @@ async fn init_platform(_init_config: &InitConfig) -> Device {
 async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) -> String {
     let config_path = Path::new(&cache_dir).join("config.json");
     let mut config = if config_path.exists() {
-        let config_str = std::fs::read_to_string(config_path).expect("Failed to read config.json");
-        serde_json::from_str::<QwenConfig>(&config_str).expect("Failed to parse config.json")
+        let config_str = match std::fs::read_to_string(&config_path) {
+            Ok(s) => s,
+            Err(e) => return format!("Failed to read config.json: {}", e),
+        };
+        match serde_json::from_str::<QwenConfig>(&config_str) {
+            Ok(c) => c,
+            Err(e) => return format!("Failed to parse config.json: {}", e),
+        }
     } else {
         QwenConfig::default()
     };
@@ -129,15 +135,21 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
     if !tokenizer_path.exists() {
         return "Tokenizer file missing. Please call download_model first.".to_string();
     }
-    let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
+    let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
+        Ok(t) => t,
+        Err(e) => return format!("Failed to load tokenizer.json: {}", e),
+    };
 
     if init_config.use_executorch || init_config.backend == BackendType::ExecuTorch {
         let pte_path = Path::new(&cache_dir).join("model.pte");
         if !pte_path.exists() {
             return "PTE model file missing (model.pte).".to_string();
         }
-        let model = QwenPte::<Backend>::new(pte_path.to_str().unwrap())
-            .expect("Failed to load PTE model");
+        let pte_path_str = pte_path.to_str().unwrap_or("");
+        let model = match QwenPte::<Backend>::new(pte_path_str) {
+            Ok(m) => m,
+            Err(e) => return format!("Failed to load PTE model: {}", e),
+        };
 
         let _ = GLOBAL_MODEL.set(LoadedModel {
             model: Mutex::new(EngineVariant::ExecuTorch(Box::new(model))),
@@ -152,8 +164,10 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             return "GGUF model file missing (model.gguf).".to_string();
         }
         use crate::model::llama_cpp::LlamaCppRunner;
-        let model = LlamaCppRunner::load(&gguf_path, &init_config)
-            .expect("Failed to load LlamaCpp model");
+        let model = match LlamaCppRunner::load(&gguf_path, &init_config) {
+            Ok(m) => m,
+            Err(e) => return format!("Failed to load LlamaCpp model: {}", e),
+        };
 
         let _ = GLOBAL_MODEL.set(LoadedModel {
             model: Mutex::new(EngineVariant::LlamaCpp(model)),
@@ -170,9 +184,18 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             return "Model file missing. Please call download_model first.".to_string();
         }
 
-        let file = std::fs::File::open(&model_path).unwrap();
-        let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
-        let safetensors = SafeTensors::deserialize(&mmap).unwrap();
+        let file = match std::fs::File::open(&model_path) {
+            Ok(f) => f,
+            Err(e) => return format!("Failed to open model.safetensors: {}", e),
+        };
+        let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
+            Ok(m) => m,
+            Err(e) => return format!("Failed to mmap model.safetensors: {}", e),
+        };
+        let safetensors = match SafeTensors::deserialize(&mmap) {
+            Ok(s) => s,
+            Err(e) => return format!("Failed to deserialize safetensors: {}", e),
+        };
 
         let record = model.clone().into_record();
         let model_with_weights = load_qwen_record(&config, &safetensors, record, &device);
@@ -199,17 +222,20 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
 
 pub fn init_session() -> String {
     let session_id = Uuid::new_v4().to_string();
-    let loaded_model = GLOBAL_MODEL
-        .get()
-        .expect("Global model not initialized. Call init first.");
+    let loaded_model = match GLOBAL_MODEL.get() {
+        Some(m) => m,
+        None => return "Error: Global model not initialized. Call init first.".to_string(),
+    };
     let tokenizer = &loaded_model.tokenizer;
     let mut token_ids = Vec::new();
-    let im_start_id = tokenizer
-        .token_to_id("<|im_start|>")
-        .expect("Missing <|im_start|>");
-    let im_end_id = tokenizer
-        .token_to_id("<|im_end|>")
-        .expect("Missing <|im_end|>");
+    let im_start_id = match tokenizer.token_to_id("<|im_start|>") {
+        Some(id) => id,
+        None => return "Error: Missing <|im_start|> in tokenizer".to_string(),
+    };
+    let im_end_id = match tokenizer.token_to_id("<|im_end|>") {
+        Some(id) => id,
+        None => return "Error: Missing <|im_end|> in tokenizer".to_string(),
+    };
     let newline_id = tokenizer.token_to_id("\n").unwrap_or(198); // Common ID for \n
     let system_text = "You are a helpful assistant.";
     let system_tokens = tokenizer
@@ -256,43 +282,55 @@ pub fn generate_response<S>(
 where
     S: StreamSink<String>,
 {
-    let loaded_model = GLOBAL_MODEL
-        .get()
-        .expect("Global model not initialized.");
+    let loaded_model = match GLOBAL_MODEL.get() {
+        Some(m) => m,
+        None => return Err("Error: Global model not initialized. Call init first.".to_string()),
+    };
     let tokenizer = &loaded_model.tokenizer;
-    let model_config = &loaded_model.config;
+    let _model_config = &loaded_model.config;
     let init_config = &loaded_model.init_config;
-    let device = &loaded_model.device;
+    let _device = &loaded_model.device;
     let model = loaded_model.model.lock();
 
-    let mut session_state = SESSIONS
-        .get()
-        .expect("SESSIONS not initialized.")
-        .get_mut(session_id)
-        .unwrap();
+    let sessions = match SESSIONS.get() {
+        Some(s) => s,
+        None => return Err("Error: SESSIONS not initialized. Call init first.".to_string()),
+    };
 
-    let im_start_id = tokenizer
-        .token_to_id("<|im_start|>")
-        .expect("Missing <|im_start|>");
-    let im_end_id = tokenizer
-        .token_to_id("<|im_end|>")
-        .expect("Missing <|im_end|>");
+    let mut session_state = match sessions.get_mut(session_id) {
+        Some(s) => s,
+        None => return Err(format!("Error: Session {} not found", session_id)),
+    };
+
+    let im_start_id = match tokenizer.token_to_id("<|im_start|>") {
+        Some(id) => id,
+        None => return Err("Error: Missing <|im_start|> in tokenizer".to_string()),
+    };
+    let im_end_id = match tokenizer.token_to_id("<|im_end|>") {
+        Some(id) => id,
+        None => return Err("Error: Missing <|im_end|> in tokenizer".to_string()),
+    };
     let newline_id = tokenizer.token_to_id("\n").unwrap_or(198); // Common ID for \n
 
-    let user_tokens = tokenizer.encode(prompt, false).unwrap().get_ids().to_vec();
+    let user_tokens = match tokenizer.encode(prompt, false) {
+        Ok(t) => t.get_ids().to_vec(),
+        Err(e) => return Err(format!("Error encoding prompt: {}", e)),
+    };
 
     session_state.tokens.push(im_start_id);
-    session_state
-        .tokens
-        .extend(tokenizer.encode("user", false).unwrap().get_ids());
+    match tokenizer.encode("user", false) {
+        Ok(t) => session_state.tokens.extend(t.get_ids()),
+        Err(e) => return Err(format!("Error encoding 'user' tag: {}", e)),
+    };
     session_state.tokens.push(newline_id);
     session_state.tokens.extend(user_tokens);
     session_state.tokens.push(im_end_id);
     session_state.tokens.push(newline_id);
     session_state.tokens.push(im_start_id);
-    session_state
-        .tokens
-        .extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    match tokenizer.encode("assistant", false) {
+        Ok(t) => session_state.tokens.extend(t.get_ids()),
+        Err(e) => return Err(format!("Error encoding 'assistant' tag: {}", e)),
+    };
     session_state.tokens.push(newline_id);
 
     let generation_limit = if max_gen_len > 0 {
@@ -311,9 +349,9 @@ where
         let next_token_id = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i as u32)
-            .unwrap();
+            .ok_or_else(|| "Error: Logits are empty".to_string())?;
 
         if next_token_id == im_end_id {
             break;
