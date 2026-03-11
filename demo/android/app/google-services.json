@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "946016760428",
+    "project_id": "snowglobe-project",
+    "storage_bucket": "snowglobe-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:946016760428:android:ba36c7d7f3b50497a71e49",
+        "android_client_info": {
+          "package_name": "com.hejitech.snowglobedemo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCp4v8MAhQURim0w3QgN8QXD1gqGrPoIjs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

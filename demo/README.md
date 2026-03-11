@@ -66,7 +66,7 @@ To use the Snapdragon NPU (Qualcomm AI Engine):
    python3 converter/convert_qwen3_to_pte.py --backend qualcomm
    ```
 3. **Deploy QNN Libraries**:
-   Push the required `.so` files from the QNN SDK to `/sdcard/Android/data/com.example.snowglobedemo/cache/` on your device.
+   Push the required `.so` files from the QNN SDK to `/sdcard/Android/data/com.hejitech.snowglobedemo/cache/` on your device.
 
 ---
 
@@ -76,7 +76,7 @@ To iterate faster, you can push models directly to the device cache instead of w
 
 ```bash
 # For Android
-adb push qwen3_0.6b.pte /sdcard/Android/data/com.example.snowglobedemo/cache/model.pte
+adb push qwen3_0.6b.pte /sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte
 ```
 
 ## 🧪 Integration Testing

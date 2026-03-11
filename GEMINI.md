@@ -77,6 +77,62 @@ The test provides detailed feedback during execution:
     - **Generation Speed**: The sustained inference speed in tokens per second (tok/s).
 - **Received tokens**: Shows the real-time stream of the model's response to the default prompt ("what is the capital of China?").
 
+## Deployment
+
+### Firebase App Distribution (Android)
+To deploy the Android demo app to Firebase App Distribution, run the following commands from the `demo/` directory.
+
+**Prerequisites & Best Practices:**
+- **Versioning:** Increase the version name and build number in `pubspec.yaml` (e.g., `1.1.2+5` becomes `1.1.3+6`) before building.
+- **Environment:** Ensure `ANDROID_NDK_ROOT` is set to your NDK path (e.g., `export ANDROID_NDK_ROOT="/path/to/ndk/28.2.13676358/"`) to avoid build failures in Rust crates like `llama-cpp-sys-2`.
+- **Target Platforms:** Use `--target-platform android-arm64,android-x64` to avoid issues with unsupported architectures (like `armv7`) and speed up the build.
+
+```bash
+cd demo
+
+# 1. Build the release APK
+export ANDROID_NDK_ROOT="/path/to/your/ndk/"
+flutter build apk --release --target-platform android-arm64,android-x64
+
+# 2. Distribute to Firebase
+# Get FIREBASE_ANDROID_APP_ID from the Firebase console or firebase_options.dart
+firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
+  --app $FIREBASE_ANDROID_APP_ID \
+  --release-notes "Detailed description of the current feature or improvement" \
+  --groups "dev"
+```
+
+### Targeting Different Backends
+
+The Snowglobe engine supports multiple backends. You can target them using build-time features or runtime configuration.
+
+#### 1. Hardware Acceleration (GPU vs. CPU)
+Hardware acceleration is controlled via Rust features in `demo/rust/Cargo.toml`.
+- **CPU (Default):** The `default` feature list is empty. Uses Burn's `NdArray` backend.
+- **GPU (WGPU/Vulkan/Metal):** Enable the `high_perf` feature by editing `demo/rust/Cargo.toml`:
+  ```toml
+  [features]
+  default = ["snowglobe/high_perf"]
+  ```
+
+#### 2. Inference Orchestration (llama.cpp, ExecuTorch, Burn)
+The orchestration layer is selected at runtime in the Flutter app based on `--dart-define` flags and model file availability.
+
+- **llama.cpp (Default):** Optimized for GGUF models.
+  ```bash
+  flutter build apk --release --dart-define=USE_LLAMACPP=true
+  ```
+- **ExecuTorch (Experimental):** Optimized for `.pte` models.
+  ```bash
+  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_EXECUTORCH=true
+  ```
+- **Burn (Safetensors):** Native Burn implementation for `.safetensors` models.
+  ```bash
+  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_EXECUTORCH=false
+  ```
+
+**Note:** The app also performs automatic model detection. If a `model.pte` file is found in the application's cache directory, it will attempt to use the ExecuTorch backend regardless of the build flags.
+
 ## Tech Stack
 
 - **Frontend**: Flutter (Dart)

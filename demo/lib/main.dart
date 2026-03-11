@@ -307,7 +307,7 @@ class _MyAppState extends State<MyApp> {
         } else if (USE_EXECUTORCH) {
           final localPte = File('../qwen3_0.6b.pte');
           final androidPte = File('/data/local/tmp/snowglobe/model.pte');
-          final androidExternalPte = File('/sdcard/Android/data/com.example.snowglobedemo/cache/model.pte');
+          final androidExternalPte = File('/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte');
           
           if (await localPte.exists()) {
             setState(() => _response = 'Copying local model.pte...');
