@@ -52,7 +52,8 @@ impl<B: Backend> QwenPte<B> {
     }
 
     pub fn generate(&self, prompt: &str, max_new_tokens: usize) -> Result<String, String> {
-        let loaded_model = GLOBAL_MODEL.get().ok_or("Model not initialized")?;
+        let global_lock = GLOBAL_MODEL.read();
+        let loaded_model = global_lock.as_ref().ok_or("Model not initialized")?;
         let tokenizer = &loaded_model.tokenizer;
 
         // 1. Tokenize prompt with chat template

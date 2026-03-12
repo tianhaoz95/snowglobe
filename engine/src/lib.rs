@@ -16,10 +16,10 @@ pub use crate::model::{
 pub use crate::model::runner::{EngineSession, ModelRunner};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
-use burn::tensor::{Int, TensorData};
+use burn::tensor::TensorData;
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use safetensors::SafeTensors;
 use std::path::Path;
 use tokenizers::Tokenizer;
@@ -66,11 +66,11 @@ pub mod backend_setup {
 pub use backend_setup::Backend;
 pub use backend_setup::Device;
 
-pub static GLOBAL_MODEL: OnceCell<LoadedModel<Backend>> = OnceCell::new();
+pub static GLOBAL_MODEL: RwLock<Option<LoadedModel<Backend>>> = RwLock::new(None);
 
 pub type SessionState = EngineSession;
 
-pub static SESSIONS: OnceCell<DashMap<String, SessionState>> = OnceCell::new();
+pub static SESSIONS: RwLock<Option<DashMap<String, SessionState>>> = RwLock::new(None);
 
 pub fn check_backend() -> String {
     #[cfg(feature = "high_perf")]
@@ -151,7 +151,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             Err(e) => return format!("Failed to load PTE model: {}", e),
         };
 
-        let _ = GLOBAL_MODEL.set(LoadedModel {
+        let _ = GLOBAL_MODEL.write().insert(LoadedModel {
             model: Mutex::new(EngineVariant::ExecuTorch(Box::new(model))),
             tokenizer,
             config,
@@ -169,7 +169,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             Err(e) => return format!("Failed to load LlamaCpp model: {}", e),
         };
 
-        let _ = GLOBAL_MODEL.set(LoadedModel {
+        let _ = GLOBAL_MODEL.write().insert(LoadedModel {
             model: Mutex::new(EngineVariant::LlamaCpp(model)),
             tokenizer,
             config,
@@ -207,7 +207,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         drop(mmap);
         drop(file);
 
-        let _ = GLOBAL_MODEL.set(LoadedModel {
+        let _ = GLOBAL_MODEL.write().insert(LoadedModel {
             model: Mutex::new(EngineVariant::Burn(Box::new(model))),
             tokenizer,
             config,
@@ -216,13 +216,14 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         });
     }
 
-    let _ = SESSIONS.set(DashMap::new());
+    *SESSIONS.write() = Some(DashMap::new());
     return "Success".to_string();
 }
 
 pub fn init_session() -> String {
     let session_id = Uuid::new_v4().to_string();
-    let loaded_model = match GLOBAL_MODEL.get() {
+    let global_lock = GLOBAL_MODEL.read();
+    let loaded_model = match &*global_lock {
         Some(m) => m,
         None => return "Error: Global model not initialized. Call init first.".to_string(),
     };
@@ -256,10 +257,9 @@ pub fn init_session() -> String {
         offset: 0,
     };
 
-    SESSIONS
-        .get()
-        .expect("SESSIONS not initialized. Call init first.")
-        .insert(session_id.clone(), state);
+    let sessions_lock = SESSIONS.read();
+    let sessions = sessions_lock.as_ref().expect("SESSIONS not initialized. Call init first.");
+    sessions.insert(session_id.clone(), state);
     session_id
 }
 
@@ -282,7 +282,8 @@ pub fn generate_response<S>(
 where
     S: StreamSink<String>,
 {
-    let loaded_model = match GLOBAL_MODEL.get() {
+    let global_lock = GLOBAL_MODEL.read();
+    let loaded_model = match &*global_lock {
         Some(m) => m,
         None => return Err("Error: Global model not initialized. Call init first.".to_string()),
     };
@@ -292,7 +293,8 @@ where
     let _device = &loaded_model.device;
     let model = loaded_model.model.lock();
 
-    let sessions = match SESSIONS.get() {
+    let sessions_lock = SESSIONS.read();
+    let sessions = match &*sessions_lock {
         Some(s) => s,
         None => return Err("Error: SESSIONS not initialized. Call init first.".to_string()),
     };
@@ -390,7 +392,8 @@ mod tests {
         )
         .await;
 
-        let loaded_model = GLOBAL_MODEL.get().unwrap();
+        let global_lock = GLOBAL_MODEL.read();
+        let loaded_model = global_lock.as_ref().unwrap();
         let tokenizer = &loaded_model.tokenizer;
         let model = loaded_model.model.lock();
 
