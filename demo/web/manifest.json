@@ -1,6 +1,6 @@
 {
-    "name": "snowglobedemo",
-    "short_name": "snowglobedemo",
+    "name": "SnowBench",
+    "short_name": "SnowBench",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
