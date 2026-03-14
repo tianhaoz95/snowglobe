@@ -64,6 +64,7 @@ class _MyAppState extends State<MyApp> {
       _isLoading = true;
       _engineErrorMessage = null;
       _isEngineReady = false;
+      _modelInfo = null; // Reset model info when switching
     });
 
     try {
@@ -77,12 +78,13 @@ class _MyAppState extends State<MyApp> {
       final backend = await checkBackend();
       print('Backend check: $backend');
 
-      final cacheDir = await getApplicationSupportDirectory();
+      final appSupportDir = await getApplicationSupportDirectory();
+      final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
       if (!await cacheDir.exists()) {
         await cacheDir.create(recursive: true);
       }
 
-      print('Application Support Directory: ${cacheDir.path}');
+      print('Model-specific Cache Directory: ${cacheDir.path}');
 
       final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
       if (!downloadSuccess) {
@@ -137,19 +139,20 @@ class _MyAppState extends State<MyApp> {
 
       // Auto-cleanup corrupted files if detected
       try {
-        final cacheDir = await getApplicationSupportDirectory();
+        final appSupportDir = await getApplicationSupportDirectory();
+        final cacheDir = '${appSupportDir.path}/${_selectedModel.name}';
         if (errorStr.contains('tokenizer.json')) {
-          final f = File('${cacheDir.path}/tokenizer.json');
+          final f = File('$cacheDir/tokenizer.json');
           if (await f.exists()) await f.delete();
         } else if (errorStr.contains('config.json')) {
-          final f = File('${cacheDir.path}/config.json');
+          final f = File('$cacheDir/config.json');
           if (await f.exists()) await f.delete();
         } else if (errorStr.contains('model.safetensors')) {
-          final f = File('${cacheDir.path}/model.safetensors');
+          final f = File('$cacheDir/model.safetensors');
           if (await f.exists()) await f.delete();
         } else if (errorStr.contains('GGUF model file missing') ||
             errorStr.contains('LlamaCpp model')) {
-          final f = File('${cacheDir.path}/model.gguf');
+          final f = File('$cacheDir/model.gguf');
           if (await f.exists()) await f.delete();
         }
       } catch (cleanupError) {
@@ -165,7 +168,9 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _deleteModelAssets() async {
-    final cacheDir = await getApplicationSupportDirectory();
+    final appSupportDir = await getApplicationSupportDirectory();
+    final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
+    
     final files = [
       File('${cacheDir.path}/model.safetensors'),
       File('${cacheDir.path}/model.pte'),
@@ -185,8 +190,17 @@ class _MyAppState extends State<MyApp> {
           await file.delete();
         }
       }
+      
+      // Also try to delete the directory if empty
+      if (await cacheDir.exists()) {
+        try {
+          await cacheDir.delete();
+        } catch (_) {}
+      }
+
       _sessionId = null;
       _isEngineReady = false;
+      _modelInfo = null;
       setState(() {
         _response = 'Model assets deleted. System not ready.';
         _engineErrorMessage =
@@ -226,7 +240,12 @@ class _MyAppState extends State<MyApp> {
     });
 
     try {
-      final cacheDir = await getApplicationSupportDirectory();
+      final appSupportDir = await getApplicationSupportDirectory();
+      final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
+      if (!await cacheDir.exists()) {
+        await cacheDir.create(recursive: true);
+      }
+
       final pickedFile = File(result.files.single.path!);
       final extension = pickedFile.path.split('.').last.toLowerCase();
 
@@ -262,9 +281,11 @@ class _MyAppState extends State<MyApp> {
         ),
       );
       _sessionId = await initSession();
+      final modelInfo = await getModelInfo();
 
       setState(() {
         _isEngineReady = true;
+        _modelInfo = modelInfo;
         _response = 'Engine ready with manual model: $targetName';
       });
     } catch (e) {
