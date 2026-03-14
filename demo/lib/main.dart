@@ -6,9 +6,16 @@ import 'package:snowglobedemo/src/rust/api/simple.dart';
 import 'package:snowglobedemo/src/rust/frb_generated.dart';
 import 'dart:io';
 
-const bool USE_QWEN3 = true;
-const bool USE_EXECUTORCH = bool.fromEnvironment('USE_EXECUTORCH', defaultValue: false);
-const bool USE_LLAMACPP = bool.fromEnvironment('USE_LLAMACPP', defaultValue: true);
+enum ModelType { qwen2_5, qwen3, qwen3_5 }
+
+const bool USE_EXECUTORCH = bool.fromEnvironment(
+  'USE_EXECUTORCH',
+  defaultValue: false,
+);
+const bool USE_LLAMACPP = bool.fromEnvironment(
+  'USE_LLAMACPP',
+  defaultValue: true,
+);
 
 void main() {
   runApp(const MyApp());
@@ -29,6 +36,7 @@ class _MyAppState extends State<MyApp> {
   Future<void>? _initEngineFuture;
 
   // Engine status
+  ModelType _selectedModel = ModelType.qwen3_5;
   String? _engineErrorMessage;
   bool _isEngineReady = false;
   bool _isRustLibInitialized = false;
@@ -50,6 +58,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initEngine() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _engineErrorMessage = null;
@@ -76,10 +85,12 @@ class _MyAppState extends State<MyApp> {
 
       final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
       if (!downloadSuccess) {
-        setState(() {
-          _engineErrorMessage =
-              'Model files not found. Please upload a model file or download it.';
-        });
+        if (mounted) {
+          setState(() {
+            _engineErrorMessage =
+                'Model files not found. Please upload a model file or download it.';
+          });
+        }
         return;
       }
 
@@ -89,13 +100,13 @@ class _MyAppState extends State<MyApp> {
           vocabShards: 8,
           maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
-          backend: USE_LLAMACPP 
-              ? BackendType.llamaCpp 
+          backend: USE_LLAMACPP
+              ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
         ),
       );
       print('Engine initialized: $initResult');
-      
+
       if (initResult != 'Success') {
         throw Exception(initResult);
       }
@@ -104,17 +115,21 @@ class _MyAppState extends State<MyApp> {
       if (_sessionId!.startsWith('Error:')) {
         throw Exception(_sessionId);
       }
-      setState(() {
-        _isEngineReady = true;
-        _response = 'System ready. Let\'s chat!';
-      });
+      if (mounted) {
+        setState(() {
+          _isEngineReady = true;
+          _response = 'System ready. Let\'s chat!';
+        });
+      }
     } catch (e) {
       print('Initialization error: $e');
       final errorStr = e.toString();
-      setState(() {
-        _engineErrorMessage = 'Failed to initialize engine: $e';
-      });
-      
+      if (mounted) {
+        setState(() {
+          _engineErrorMessage = 'Failed to initialize engine: $e';
+        });
+      }
+
       // Auto-cleanup corrupted files if detected
       try {
         final cacheDir = await getApplicationSupportDirectory();
@@ -127,7 +142,8 @@ class _MyAppState extends State<MyApp> {
         } else if (errorStr.contains('model.safetensors')) {
           final f = File('${cacheDir.path}/model.safetensors');
           if (await f.exists()) await f.delete();
-        } else if (errorStr.contains('GGUF model file missing') || errorStr.contains('LlamaCpp model')) {
+        } else if (errorStr.contains('GGUF model file missing') ||
+            errorStr.contains('LlamaCpp model')) {
           final f = File('${cacheDir.path}/model.gguf');
           if (await f.exists()) await f.delete();
         }
@@ -135,9 +151,11 @@ class _MyAppState extends State<MyApp> {
         print('Error during auto-cleanup: $cleanupError');
       }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -166,7 +184,8 @@ class _MyAppState extends State<MyApp> {
       _isEngineReady = false;
       setState(() {
         _response = 'Model assets deleted. System not ready.';
-        _engineErrorMessage = 'Model files deleted. Please redownload or upload.';
+        _engineErrorMessage =
+            'Model files deleted. Please redownload or upload.';
       });
     } catch (e) {
       setState(() {
@@ -214,7 +233,7 @@ class _MyAppState extends State<MyApp> {
       } else if (extension == 'safetensors') {
         targetName = 'model.safetensors';
       } else {
-        targetName = USE_LLAMACPP 
+        targetName = USE_LLAMACPP
             ? 'model.gguf'
             : (USE_EXECUTORCH ? 'model.pte' : 'model.safetensors');
       }
@@ -232,8 +251,8 @@ class _MyAppState extends State<MyApp> {
           vocabShards: 8,
           maxGenLen: _maxGenLen,
           useExecutorch: USE_EXECUTORCH,
-          backend: USE_LLAMACPP 
-              ? BackendType.llamaCpp 
+          backend: USE_LLAMACPP
+              ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
         ),
       );
@@ -266,19 +285,44 @@ class _MyAppState extends State<MyApp> {
     const qwen3ModelUrl =
         'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/model.safetensors';
     const qwen3TokenizerUrl =
-        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/tokenizer.json';
+        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json';
     const qwen3ConfigUrl =
-        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/config.json';
+        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json';
 
-    final modelUrl = USE_QWEN3 ? qwen3ModelUrl : qwen2_5ModelUrl;
-    final tokenizerUrl = USE_QWEN3 ? qwen3TokenizerUrl : qwen2_5TokenizerUrl;
-    final configUrl = USE_QWEN3 ? qwen3ConfigUrl : qwen2_5ConfigUrl;
+    const qwen3_5ModelUrl =
+        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/model.safetensors';
+    const qwen3_5TokenizerUrl =
+        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json';
+    const qwen3_5ConfigUrl =
+        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json';
 
-    final modelPath = USE_LLAMACPP 
+    String modelUrl;
+    String tokenizerUrl;
+    String configUrl;
+
+    switch (_selectedModel) {
+      case ModelType.qwen2_5:
+        modelUrl = qwen2_5ModelUrl;
+        tokenizerUrl = qwen2_5TokenizerUrl;
+        configUrl = qwen2_5ConfigUrl;
+        break;
+      case ModelType.qwen3:
+        modelUrl = qwen3ModelUrl;
+        tokenizerUrl = qwen3TokenizerUrl;
+        configUrl = qwen3ConfigUrl;
+        break;
+      case ModelType.qwen3_5:
+        modelUrl = qwen3_5ModelUrl;
+        tokenizerUrl = qwen3_5TokenizerUrl;
+        configUrl = qwen3_5ConfigUrl;
+        break;
+    }
+
+    final modelPath = USE_LLAMACPP
         ? '$cacheDir/model.gguf'
         : (USE_EXECUTORCH
-            ? '$cacheDir/model.pte'
-            : '$cacheDir/model.safetensors');
+              ? '$cacheDir/model.pte'
+              : '$cacheDir/model.safetensors');
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
 
@@ -291,15 +335,24 @@ class _MyAppState extends State<MyApp> {
       }
       if (!await File(modelPath).exists()) {
         if (USE_LLAMACPP) {
-          const ggufUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
+          String ggufUrl;
+          if (_selectedModel == ModelType.qwen3_5) {
+            ggufUrl =
+                'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf';
+          } else {
+            ggufUrl =
+                'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
+          }
           final localGguf = File('../model.gguf');
           final androidGguf = File('/data/local/tmp/snowglobe/model.gguf');
-          
+
           if (await localGguf.exists()) {
             setState(() => _response = 'Copying local model.gguf...');
             await localGguf.copy(modelPath);
           } else if (Platform.isAndroid && await androidGguf.exists()) {
-            setState(() => _response = 'Copying model.gguf from /data/local/tmp...');
+            setState(
+              () => _response = 'Copying model.gguf from /data/local/tmp...',
+            );
             await androidGguf.copy(modelPath);
           } else {
             await _downloadFile(ggufUrl, modelPath, 'Model weights (GGUF)');
@@ -307,16 +360,22 @@ class _MyAppState extends State<MyApp> {
         } else if (USE_EXECUTORCH) {
           final localPte = File('../qwen3_0.6b.pte');
           final androidPte = File('/data/local/tmp/snowglobe/model.pte');
-          final androidExternalPte = File('/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte');
-          
+          final androidExternalPte = File(
+            '/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte',
+          );
+
           if (await localPte.exists()) {
             setState(() => _response = 'Copying local model.pte...');
             await localPte.copy(modelPath);
           } else if (Platform.isAndroid && await androidPte.exists()) {
-            setState(() => _response = 'Copying model.pte from /data/local/tmp...');
+            setState(
+              () => _response = 'Copying model.pte from /data/local/tmp...',
+            );
             await androidPte.copy(modelPath);
           } else if (Platform.isAndroid && await androidExternalPte.exists()) {
-            setState(() => _response = 'Copying model.pte from external storage...');
+            setState(
+              () => _response = 'Copying model.pte from external storage...',
+            );
             await androidExternalPte.copy(modelPath);
           } else {
             return false;
@@ -428,13 +487,17 @@ class _MyAppState extends State<MyApp> {
       }
       stopwatch.stop();
     } catch (e) {
-      setState(() {
-        _response = 'Error: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _response = 'Error: $e';
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -499,8 +562,7 @@ class _MyAppState extends State<MyApp> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_engineErrorMessage != null)
-                  _buildErrorBanner(colorScheme),
+                if (_engineErrorMessage != null) _buildErrorBanner(colorScheme),
 
                 // Engine Status Indicator
                 FutureBuilder<void>(
@@ -573,6 +635,53 @@ class _MyAppState extends State<MyApp> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Model',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            DropdownButton<ModelType>(
+                              value: _selectedModel,
+                              underline: const SizedBox(),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: ModelType.qwen3_5,
+                                  child: Text('Qwen 3.5 0.8B'),
+                                ),
+                                DropdownMenuItem(
+                                  value: ModelType.qwen3,
+                                  child: Text('Qwen 3 0.6B'),
+                                ),
+                                DropdownMenuItem(
+                                  value: ModelType.qwen2_5,
+                                  child: Text('Qwen 2.5 0.5B'),
+                                ),
+                              ],
+                              onChanged: _isLoading
+                                  ? null
+                                  : (value) {
+                                      if (value != null) {
+                                        setState(() {
+                                          _selectedModel = value;
+                                        });
+                                        _initEngine();
+                                      }
+                                    },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -677,7 +786,7 @@ class _MyAppState extends State<MyApp> {
 
                 // Footer
                 Text(
-                  'Powered by ${USE_QWEN3 ? "Qwen 3" : "Qwen 2.5"} & Rust Core',
+                  'Powered by Qwen & Rust Core',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 11,

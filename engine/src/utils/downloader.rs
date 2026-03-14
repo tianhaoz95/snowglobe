@@ -54,10 +54,23 @@ pub async fn download_qwen3_0_6b(cache_dir: String) -> String {
     .await
 }
 
+pub async fn download_qwen3_5_0_8b(cache_dir: String) -> String {
+    let model_url = "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/model.safetensors";
+    let tokenizer_url = "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json";
+    let config_url = "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json";
+    download_model(
+        cache_dir,
+        model_url.to_string(),
+        tokenizer_url.to_string(),
+        config_url.to_string(),
+    )
+    .await
+}
+
 pub async fn download_qwen_gguf(cache_dir: String) -> String {
-    let model_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf";
-    let tokenizer_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json";
-    let config_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json";
+    let model_url = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf";
+    let tokenizer_url = "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json";
+    let config_url = "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json";
     
     let model_path = Path::new(&cache_dir).join("model.gguf");
     let tokenizer_path = Path::new(&cache_dir).join("tokenizer.json");

@@ -15,20 +15,31 @@ use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
 pub struct QwenConfig {
+    #[serde(default = "default_vocab_size")]
     pub vocab_size: usize,
+    #[serde(default = "default_hidden_size")]
     pub hidden_size: usize,
+    #[serde(default = "default_num_hidden_layers")]
     pub num_hidden_layers: usize,
+    #[serde(default = "default_num_attention_heads")]
     pub num_attention_heads: usize,
+    #[serde(default = "default_num_key_value_heads")]
     pub num_key_value_heads: usize, // For Grouped Query Attention (GQA)
+    #[serde(default = "default_intermediate_size")]
     pub intermediate_size: usize,   // For the feed-forward layer
+    #[serde(default = "default_rope_theta")]
     pub rope_theta: f64,
+    #[serde(default = "default_max_position_embeddings")]
     pub max_position_embeddings: usize,
+    #[serde(default = "default_rms_norm_eps")]
     pub rms_norm_eps: f64,
+    #[serde(default = "default_true")]
     pub use_cache: bool,
     #[serde(alias = "tie_word_embeddings", default = "default_true")]
     pub tied_word_embeddings: bool,
     #[serde(alias = "attention_bias", default = "default_true")]
     pub qkv_bias: bool,
+    #[serde(default = "default_hidden_act")]
     pub hidden_act: String, // "silu" for SwiGLU
 
     // General transformer settings
@@ -42,6 +53,17 @@ pub struct QwenConfig {
     pub head_dim: Option<usize>,
     pub use_qk_norm: Option<bool>,
 }
+
+fn default_vocab_size() -> usize { 151936 }
+fn default_hidden_size() -> usize { 896 }
+fn default_num_hidden_layers() -> usize { 24 }
+fn default_num_attention_heads() -> usize { 14 }
+fn default_num_key_value_heads() -> usize { 2 }
+fn default_intermediate_size() -> usize { 4864 }
+fn default_rope_theta() -> f64 { 1000000.0 }
+fn default_max_position_embeddings() -> usize { 32768 }
+fn default_rms_norm_eps() -> f64 { 1e-6 }
+fn default_hidden_act() -> String { "silu".to_string() }
 
 fn default_true() -> bool {
     true
