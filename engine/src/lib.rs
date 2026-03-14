@@ -80,6 +80,10 @@ pub fn check_backend() -> String {
     return "💻 USING CPU (NDARRAY)".to_string();
 }
 
+pub fn get_model_info() -> Option<crate::model::ModelInfo> {
+    GLOBAL_MODEL.read().as_ref().map(|m| m.config.get_model_info())
+}
+
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
 pub async fn init(cache_dir: String, init_config: InitConfig) -> String {

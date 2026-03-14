@@ -37,6 +37,30 @@ pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
     .await
 }
 
+pub struct ModelInfo {
+    pub param_count: u64,
+    pub model_size_bytes: u64,
+    pub num_layers: u32,
+    pub hidden_size: u32,
+    pub vocab_size: u32,
+}
+
+impl From<snowglobe::model::ModelInfo> for ModelInfo {
+    fn from(info: snowglobe::model::ModelInfo) -> Self {
+        Self {
+            param_count: info.param_count as u64,
+            model_size_bytes: info.model_size_bytes as u64,
+            num_layers: info.num_layers as u32,
+            hidden_size: info.hidden_size as u32,
+            vocab_size: info.vocab_size as u32,
+        }
+    }
+}
+
+pub fn get_model_info() -> Option<ModelInfo> {
+    snowglobe::get_model_info().map(Into::into)
+}
+
 pub fn check_backend() -> String {
     snowglobe::check_backend()
 }

@@ -41,6 +41,7 @@ class _MyAppState extends State<MyApp> {
   bool _isEngineReady = false;
   bool _isRustLibInitialized = false;
   int _maxGenLen = 128;
+  ModelInfo? _modelInfo;
 
   // Performance metrics
   int _tokenCount = 0;
@@ -115,10 +116,14 @@ class _MyAppState extends State<MyApp> {
       if (_sessionId!.startsWith('Error:')) {
         throw Exception(_sessionId);
       }
+      
+      final modelInfo = await getModelInfo();
+
       if (mounted) {
         setState(() {
           _isEngineReady = true;
           _response = 'System ready. Let\'s chat!';
+          _modelInfo = modelInfo;
         });
       }
     } catch (e) {
@@ -635,6 +640,29 @@ class _MyAppState extends State<MyApp> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (_modelInfo != null) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildModelInfoChip(
+                                '${(_modelInfo!.paramCount.toDouble() / 1e6).toStringAsFixed(1)}M params',
+                                Icons.memory,
+                                colorScheme.primary,
+                              ),
+                              _buildModelInfoChip(
+                                '${(_modelInfo!.modelSizeBytes.toDouble() / (1024 * 1024)).toStringAsFixed(1)}MB',
+                                Icons.storage,
+                                colorScheme.secondary,
+                              ),
+                              _buildModelInfoChip(
+                                '${_modelInfo!.numLayers} layers',
+                                Icons.layers,
+                                colorScheme.tertiary,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -890,6 +918,32 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildModelInfoChip(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

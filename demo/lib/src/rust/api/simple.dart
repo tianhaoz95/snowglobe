@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `FrbSink`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add`, `from`, `from`
 
 Future<String> initEngine({
   required String cacheDir,
@@ -16,6 +16,9 @@ Future<String> initEngine({
   cacheDir: cacheDir,
   config: config,
 );
+
+Future<ModelInfo?> getModelInfo() =>
+    RustLib.instance.api.crateApiSimpleGetModelInfo();
 
 Future<String> checkBackend() =>
     RustLib.instance.api.crateApiSimpleCheckBackend();
@@ -72,4 +75,39 @@ class InitConfig {
           maxGenLen == other.maxGenLen &&
           useExecutorch == other.useExecutorch &&
           backend == other.backend;
+}
+
+class ModelInfo {
+  final BigInt paramCount;
+  final BigInt modelSizeBytes;
+  final int numLayers;
+  final int hiddenSize;
+  final int vocabSize;
+
+  const ModelInfo({
+    required this.paramCount,
+    required this.modelSizeBytes,
+    required this.numLayers,
+    required this.hiddenSize,
+    required this.vocabSize,
+  });
+
+  @override
+  int get hashCode =>
+      paramCount.hashCode ^
+      modelSizeBytes.hashCode ^
+      numLayers.hashCode ^
+      hiddenSize.hashCode ^
+      vocabSize.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ModelInfo &&
+          runtimeType == other.runtimeType &&
+          paramCount == other.paramCount &&
+          modelSizeBytes == other.modelSizeBytes &&
+          numLayers == other.numLayers &&
+          hiddenSize == other.hiddenSize &&
+          vocabSize == other.vocabSize;
 }

@@ -73,7 +73,80 @@ fn default_vocab_shards() -> usize {
     1
 }
 
+use crate::model::ModelInfo;
+
 impl QwenConfig {
+    pub fn get_model_info(&self) -> ModelInfo {
+        let head_dim = self.head_dim.unwrap_or(self.hidden_size / self.num_attention_heads);
+        
+        // 1. Embedding
+        let mut params = self.vocab_size * self.hidden_size;
+        
+        // 2. Layers
+        let layers_params = {
+            let mut layer_params = 0;
+            
+            // Attention
+            // q_proj: [hidden_size, num_attention_heads * head_dim]
+            layer_params += self.hidden_size * (self.num_attention_heads * head_dim);
+            // k_proj: [hidden_size, num_key_value_heads * head_dim]
+            layer_params += self.hidden_size * (self.num_key_value_heads * head_dim);
+            // v_proj: [hidden_size, num_key_value_heads * head_dim]
+            layer_params += self.hidden_size * (self.num_key_value_heads * head_dim);
+            // o_proj: [num_attention_heads * head_dim, hidden_size]
+            layer_params += (self.num_attention_heads * head_dim) * self.hidden_size;
+            
+            if self.qkv_bias {
+                layer_params += (self.num_attention_heads + 2 * self.num_key_value_heads) * head_dim;
+            }
+            
+            // RMS Norms
+            layer_params += self.hidden_size; // self_attn_norm
+            layer_params += self.hidden_size; // mlp_norm
+            
+            // Optional QK Norms
+            let use_qk_norm = self.use_qk_norm.unwrap_or_else(|| {
+                if let Some(model_type) = &self.model_type {
+                    model_type == "qwen3"
+                } else {
+                    false
+                }
+            });
+            if use_qk_norm {
+                layer_params += 2 * head_dim;
+            }
+            
+            // MLP
+            layer_params += self.hidden_size * self.intermediate_size; // gate_proj
+            layer_params += self.hidden_size * self.intermediate_size; // up_proj
+            layer_params += self.intermediate_size * self.hidden_size; // down_proj
+            
+            layer_params * self.num_hidden_layers
+        };
+        
+        params += layers_params;
+        
+        // 3. Final norm
+        params += self.hidden_size;
+        
+        // 4. Output projection
+        if !self.tied_word_embeddings {
+            params += self.hidden_size * self.vocab_size;
+        }
+        
+        // Model size: assume f32 (4 bytes) or f16 (2 bytes)
+        // For now, let's use 4 bytes if not GGUF.
+        let bytes_per_param = 4;
+
+        ModelInfo {
+            param_count: params,
+            model_size_bytes: params * bytes_per_param,
+            num_layers: self.num_hidden_layers,
+            hidden_size: self.hidden_size,
+            vocab_size: self.vocab_size,
+        }
+    }
+
     pub fn init<B: Backend>(&self, device: &B::Device) -> Qwen<B> {
         let vocab_size = self.vocab_size;
         let hidden_size = self.hidden_size;

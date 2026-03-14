@@ -36,6 +36,15 @@ pub enum EngineVariant {
     LlamaCpp(Box<dyn runner::ModelRunner>),
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    pub param_count: usize,
+    pub model_size_bytes: usize,
+    pub num_layers: usize,
+    pub hidden_size: usize,
+    pub vocab_size: usize,
+}
+
 pub struct LoadedModel<B: Backend> {
     pub model: Mutex<EngineVariant>,
     pub tokenizer: Tokenizer,
