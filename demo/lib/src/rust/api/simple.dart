@@ -83,6 +83,8 @@ class ModelInfo {
   final int numLayers;
   final int hiddenSize;
   final int vocabSize;
+  final String runner;
+  final String backend;
 
   const ModelInfo({
     required this.paramCount,
@@ -90,6 +92,8 @@ class ModelInfo {
     required this.numLayers,
     required this.hiddenSize,
     required this.vocabSize,
+    required this.runner,
+    required this.backend,
   });
 
   @override
@@ -98,7 +102,9 @@ class ModelInfo {
       modelSizeBytes.hashCode ^
       numLayers.hashCode ^
       hiddenSize.hashCode ^
-      vocabSize.hashCode;
+      vocabSize.hashCode ^
+      runner.hashCode ^
+      backend.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -109,5 +115,7 @@ class ModelInfo {
           modelSizeBytes == other.modelSizeBytes &&
           numLayers == other.numLayers &&
           hiddenSize == other.hiddenSize &&
-          vocabSize == other.vocabSize;
+          vocabSize == other.vocabSize &&
+          runner == other.runner &&
+          backend == other.backend;
 }

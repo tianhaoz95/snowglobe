@@ -43,6 +43,8 @@ pub struct ModelInfo {
     pub num_layers: u32,
     pub hidden_size: u32,
     pub vocab_size: u32,
+    pub runner: String,
+    pub backend: String,
 }
 
 impl From<snowglobe::model::ModelInfo> for ModelInfo {
@@ -53,6 +55,8 @@ impl From<snowglobe::model::ModelInfo> for ModelInfo {
             num_layers: info.num_layers as u32,
             hidden_size: info.hidden_size as u32,
             vocab_size: info.vocab_size as u32,
+            runner: info.runner,
+            backend: info.backend,
         }
     }
 }

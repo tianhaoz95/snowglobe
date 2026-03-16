@@ -388,12 +388,16 @@ impl SseDecode for crate::api::simple::ModelInfo {
         let mut var_numLayers = <u32>::sse_decode(deserializer);
         let mut var_hiddenSize = <u32>::sse_decode(deserializer);
         let mut var_vocabSize = <u32>::sse_decode(deserializer);
+        let mut var_runner = <String>::sse_decode(deserializer);
+        let mut var_backend = <String>::sse_decode(deserializer);
         return crate::api::simple::ModelInfo {
             param_count: var_paramCount,
             model_size_bytes: var_modelSizeBytes,
             num_layers: var_numLayers,
             hidden_size: var_hiddenSize,
             vocab_size: var_vocabSize,
+            runner: var_runner,
+            backend: var_backend,
         };
     }
 }
@@ -528,6 +532,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::simple::ModelInfo {
             self.num_layers.into_into_dart().into_dart(),
             self.hidden_size.into_into_dart().into_dart(),
             self.vocab_size.into_into_dart().into_dart(),
+            self.runner.into_into_dart().into_dart(),
+            self.backend.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -621,6 +627,8 @@ impl SseEncode for crate::api::simple::ModelInfo {
         <u32>::sse_encode(self.num_layers, serializer);
         <u32>::sse_encode(self.hidden_size, serializer);
         <u32>::sse_encode(self.vocab_size, serializer);
+        <String>::sse_encode(self.runner, serializer);
+        <String>::sse_encode(self.backend, serializer);
     }
 }
 

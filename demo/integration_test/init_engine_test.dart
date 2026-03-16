@@ -17,6 +17,7 @@ void main() {
           vocabShards: 8,
           maxGenLen: 128,
           useExecutorch: true,
+          backend: BackendType.execuTorch,
         ),
       );
       print('Engine initialized successfully.');

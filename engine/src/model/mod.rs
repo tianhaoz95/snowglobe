@@ -43,6 +43,8 @@ pub struct ModelInfo {
     pub num_layers: usize,
     pub hidden_size: usize,
     pub vocab_size: usize,
+    pub runner: String,
+    pub backend: String,
 }
 
 pub struct LoadedModel<B: Backend> {

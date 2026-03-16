@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:snowglobedemo/main.dart';
 import 'package:snowglobedemo/src/rust/api/simple.dart';
-import 'package:snowglobedemo/src/rust/frb_generated.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -74,14 +74,11 @@ void main() {
       while (stopwatch.elapsed < const Duration(seconds: 30)) {
         await tester.pump(const Duration(milliseconds: 500));
         
-        final responseTextFinder = find.descendant(
-          of: find.byType(SingleChildScrollView),
-          matching: find.byType(Text),
-        );
+        final markdownFinder = find.byType(MarkdownBody);
         
-        if (responseTextFinder.evaluate().isNotEmpty) {
-          final textWidget = tester.widget<Text>(responseTextFinder.first);
-          final currentText = textWidget.data ?? "";
+        if (markdownFinder.evaluate().isNotEmpty) {
+          final markdownWidget = tester.widget<MarkdownBody>(markdownFinder.first);
+          final currentText = markdownWidget.data;
           
           if (currentText.isNotEmpty && 
               currentText != "System ready. Let's chat!" &&

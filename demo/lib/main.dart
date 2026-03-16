@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
@@ -634,12 +635,19 @@ class _MyAppState extends State<MyApp> {
                           Expanded(
                             child: SingleChildScrollView(
                               padding: const EdgeInsets.all(24.0),
-                              child: Text(
-                                _response,
-                                style: GoogleFonts.robotoMono(
-                                  fontSize: 16,
-                                  height: 1.6,
-                                  color: Colors.black87,
+                              child: MarkdownBody(
+                                data: _response,
+                                selectable: true,
+                                styleSheet: MarkdownStyleSheet(
+                                  p: GoogleFonts.roboto(
+                                    fontSize: 16,
+                                    height: 1.6,
+                                    color: Colors.black87,
+                                  ),
+                                  code: GoogleFonts.robotoMono(
+                                    backgroundColor: Colors.grey[100],
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
                             ),
@@ -662,23 +670,43 @@ class _MyAppState extends State<MyApp> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (_modelInfo != null) ...[
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildModelInfoChip(
+                                  '${(_modelInfo!.paramCount.toDouble() / 1e6).toStringAsFixed(1)}M params',
+                                  Icons.memory,
+                                  colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                _buildModelInfoChip(
+                                  '${(_modelInfo!.modelSizeBytes.toDouble() / (1024 * 1024)).toStringAsFixed(1)}MB',
+                                  Icons.storage,
+                                  colorScheme.secondary,
+                                ),
+                                const SizedBox(width: 8),
+                                _buildModelInfoChip(
+                                  '${_modelInfo!.numLayers} layers',
+                                  Icons.layers,
+                                  colorScheme.tertiary,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               _buildModelInfoChip(
-                                '${(_modelInfo!.paramCount.toDouble() / 1e6).toStringAsFixed(1)}M params',
-                                Icons.memory,
-                                colorScheme.primary,
+                                'Runner: ${_modelInfo!.runner}',
+                                Icons.directions_run,
+                                Colors.orange,
                               ),
+                              const SizedBox(width: 8),
                               _buildModelInfoChip(
-                                '${(_modelInfo!.modelSizeBytes.toDouble() / (1024 * 1024)).toStringAsFixed(1)}MB',
-                                Icons.storage,
-                                colorScheme.secondary,
-                              ),
-                              _buildModelInfoChip(
-                                '${_modelInfo!.numLayers} layers',
-                                Icons.layers,
-                                colorScheme.tertiary,
+                                'Backend: ${_modelInfo!.backend}',
+                                Icons.settings_input_component,
+                                Colors.teal,
                               ),
                             ],
                           ),

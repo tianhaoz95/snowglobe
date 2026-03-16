@@ -144,6 +144,8 @@ impl QwenConfig {
             num_layers: self.num_hidden_layers,
             hidden_size: self.hidden_size,
             vocab_size: self.vocab_size,
+            runner: "".to_string(),
+            backend: "".to_string(),
         }
     }
 

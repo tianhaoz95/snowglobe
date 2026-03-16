@@ -74,14 +74,30 @@ pub static SESSIONS: RwLock<Option<DashMap<String, SessionState>>> = RwLock::new
 
 pub fn check_backend() -> String {
     #[cfg(feature = "high_perf")]
-    return "🚀 USING GPU (WGPU/VULKAN)".to_string();
+    {
+        #[cfg(target_os = "android")]
+        return "Vulkan GPU".to_string();
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        return "Metal GPU".to_string();
+        #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+        return "WGPU GPU".to_string();
+    }
 
     #[cfg(not(feature = "high_perf"))]
-    return "💻 USING CPU (NDARRAY)".to_string();
+    return "CPU (NdArray)".to_string();
 }
 
 pub fn get_model_info() -> Option<crate::model::ModelInfo> {
-    GLOBAL_MODEL.read().as_ref().map(|m| m.config.get_model_info())
+    GLOBAL_MODEL.read().as_ref().map(|m| {
+        let mut info = m.config.get_model_info();
+        info.runner = match &*m.model.lock() {
+            EngineVariant::Burn(_) => "Burn".to_string(),
+            EngineVariant::ExecuTorch(_) => "ExecuTorch".to_string(),
+            EngineVariant::LlamaCpp(_) => "llama.cpp".to_string(),
+        };
+        info.backend = check_backend();
+        info
+    })
 }
 
 static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();

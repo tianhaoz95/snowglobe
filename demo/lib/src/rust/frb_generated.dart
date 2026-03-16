@@ -401,14 +401,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ModelInfo dco_decode_model_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return ModelInfo(
       paramCount: dco_decode_u_64(arr[0]),
       modelSizeBytes: dco_decode_u_64(arr[1]),
       numLayers: dco_decode_u_32(arr[2]),
       hiddenSize: dco_decode_u_32(arr[3]),
       vocabSize: dco_decode_u_32(arr[4]),
+      runner: dco_decode_String(arr[5]),
+      backend: dco_decode_String(arr[6]),
     );
   }
 
@@ -525,12 +527,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_numLayers = sse_decode_u_32(deserializer);
     var var_hiddenSize = sse_decode_u_32(deserializer);
     var var_vocabSize = sse_decode_u_32(deserializer);
+    var var_runner = sse_decode_String(deserializer);
+    var var_backend = sse_decode_String(deserializer);
     return ModelInfo(
       paramCount: var_paramCount,
       modelSizeBytes: var_modelSizeBytes,
       numLayers: var_numLayers,
       hiddenSize: var_hiddenSize,
       vocabSize: var_vocabSize,
+      runner: var_runner,
+      backend: var_backend,
     );
   }
 
@@ -665,6 +671,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.numLayers, serializer);
     sse_encode_u_32(self.hiddenSize, serializer);
     sse_encode_u_32(self.vocabSize, serializer);
+    sse_encode_String(self.runner, serializer);
+    sse_encode_String(self.backend, serializer);
   }
 
   @protected
