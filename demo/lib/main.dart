@@ -348,17 +348,42 @@ class _MyAppState extends State<MyApp> {
     final modelPath = USE_LLAMACPP
         ? '$cacheDir/model.gguf'
         : (USE_EXECUTORCH
-              ? '$cacheDir/model.pte'
-              : '$cacheDir/model.safetensors');
+            ? '$cacheDir/model.pte'
+            : '$cacheDir/model.safetensors');
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
 
+    final localBase = '../.test_assets/${_selectedModel.name}';
+    final androidBase = '/data/local/tmp/snowglobe/${_selectedModel.name}';
+
+    Future<bool> trySideLoad(String fileName, String targetPath) async {
+      final localFile = File('$localBase/$fileName');
+      final androidFile = File('$androidBase/$fileName');
+
+      if (await localFile.exists()) {
+        print('Side-loading local $fileName to $targetPath');
+        setState(() => _response = 'Copying local $fileName...');
+        await localFile.copy(targetPath);
+        return true;
+      } else if (Platform.isAndroid && await androidFile.exists()) {
+        print('Side-loading $fileName from /data/local/tmp to $targetPath');
+        setState(() => _response = 'Copying $fileName from /data/local/tmp...');
+        await androidFile.copy(targetPath);
+        return true;
+      }
+      return false;
+    }
+
     try {
       if (!await File(configPath).exists()) {
-        await _downloadFile(configUrl, configPath, 'Config');
+        if (!await trySideLoad('config.json', configPath)) {
+          await _downloadFile(configUrl, configPath, 'Config');
+        }
       }
       if (!await File(tokenizerPath).exists()) {
-        await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
+        if (!await trySideLoad('tokenizer.json', tokenizerPath)) {
+          await _downloadFile(tokenizerUrl, tokenizerPath, 'Tokenizer');
+        }
       }
       if (!await File(modelPath).exists()) {
         if (USE_LLAMACPP) {
@@ -370,45 +395,54 @@ class _MyAppState extends State<MyApp> {
             ggufUrl =
                 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
           }
-          final localGguf = File('../model.gguf');
-          final androidGguf = File('/data/local/tmp/snowglobe/model.gguf');
 
-          if (await localGguf.exists()) {
-            setState(() => _response = 'Copying local model.gguf...');
-            await localGguf.copy(modelPath);
-          } else if (Platform.isAndroid && await androidGguf.exists()) {
-            setState(
-              () => _response = 'Copying model.gguf from /data/local/tmp...',
-            );
-            await androidGguf.copy(modelPath);
-          } else {
-            await _downloadFile(ggufUrl, modelPath, 'Model weights (GGUF)');
+          if (!await trySideLoad('model.gguf', modelPath)) {
+            // Fallback to legacy path for backward compatibility
+            final legacyLocalGguf = File('../model.gguf');
+            final legacyAndroidGguf = File('/data/local/tmp/snowglobe/model.gguf');
+
+            if (await legacyLocalGguf.exists()) {
+              setState(() => _response = 'Copying legacy local model.gguf...');
+              await legacyLocalGguf.copy(modelPath);
+            } else if (Platform.isAndroid && await legacyAndroidGguf.exists()) {
+              setState(
+                () => _response = 'Copying legacy model.gguf from /data/local/tmp...',
+              );
+              await legacyAndroidGguf.copy(modelPath);
+            } else {
+              await _downloadFile(ggufUrl, modelPath, 'Model weights (GGUF)');
+            }
           }
         } else if (USE_EXECUTORCH) {
-          final localPte = File('../qwen3_0.6b.pte');
-          final androidPte = File('/data/local/tmp/snowglobe/model.pte');
-          final androidExternalPte = File(
-            '/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte',
-          );
+          if (!await trySideLoad('model.pte', modelPath)) {
+            // Fallback to legacy path
+            final localPte = File('../qwen3_0.6b.pte');
+            final androidPte = File('/data/local/tmp/snowglobe/model.pte');
+            final androidExternalPte = File(
+              '/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte',
+            );
 
-          if (await localPte.exists()) {
-            setState(() => _response = 'Copying local model.pte...');
-            await localPte.copy(modelPath);
-          } else if (Platform.isAndroid && await androidPte.exists()) {
-            setState(
-              () => _response = 'Copying model.pte from /data/local/tmp...',
-            );
-            await androidPte.copy(modelPath);
-          } else if (Platform.isAndroid && await androidExternalPte.exists()) {
-            setState(
-              () => _response = 'Copying model.pte from external storage...',
-            );
-            await androidExternalPte.copy(modelPath);
-          } else {
-            return false;
+            if (await localPte.exists()) {
+              setState(() => _response = 'Copying legacy local model.pte...');
+              await localPte.copy(modelPath);
+            } else if (Platform.isAndroid && await androidPte.exists()) {
+              setState(
+                () => _response = 'Copying legacy model.pte from /data/local/tmp...',
+              );
+              await androidPte.copy(modelPath);
+            } else if (Platform.isAndroid && await androidExternalPte.exists()) {
+              setState(
+                () => _response = 'Copying model.pte from external storage...',
+              );
+              await androidExternalPte.copy(modelPath);
+            } else {
+              return false;
+            }
           }
         } else {
-          await _downloadFile(modelUrl, modelPath, 'Model weights');
+          if (!await trySideLoad('model.safetensors', modelPath)) {
+            await _downloadFile(modelUrl, modelPath, 'Model weights');
+          }
         }
       }
       return true;

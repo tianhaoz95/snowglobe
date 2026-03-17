@@ -8,6 +8,7 @@
 /executorch-android/
 
 # Temporary and Test data
+/.test_assets/
 /demo/tmp/
 /engine/tmp/
 /tmp/

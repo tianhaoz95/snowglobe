@@ -69,6 +69,19 @@ EXECUTORCH_USE_MPS=1 flutter test integration_test/chat_test.dart -d macos
 flutter test integration_test/chat_test.dart -d <device_id>
 ```
 
+### Optimized Integration Testing (Model Caching)
+To avoid downloading large model files (~500MB) every time the integration test is run, use the optimized test runner. This script caches the model assets in `.test_assets/` and pushes them to the device before running the test.
+
+```bash
+# Run the optimized integration test (Android)
+./scripts/run_chat_test.sh --model qwen3_5 --device <device_id>
+```
+
+The runner performs the following:
+1.  **Downloads once:** Fetches model weights and metadata to `.test_assets/` on the host.
+2.  **Side-loads to device:** Uses `adb push` to copy assets to `/data/local/tmp/snowglobe/qwen3_5/`.
+3.  **Bypasses app downloads:** The Flutter app detects these files and copies them to its local cache instead of downloading them.
+
 #### Interpreting Logs
 The test provides detailed feedback during execution:
 - **CHAT TEST - RUNTIME INFO**: Identifies the active hardware backend (e.g., CPU/GPU) and the orchestration framework (Burn vs. ExecuTorch).
