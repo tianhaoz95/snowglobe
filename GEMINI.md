@@ -95,9 +95,9 @@ export ANDROID_NDK_ROOT="/path/to/your/ndk/"
 flutter build apk --release --target-platform android-arm64,android-x64
 
 # 2. Distribute to Firebase
-# Get FIREBASE_ANDROID_APP_ID from the Firebase console or firebase_options.dart
+# The App ID can be found in demo/lib/firebase_options.dart (under FirebaseOptions android)
 firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
-  --app $FIREBASE_ANDROID_APP_ID \
+  --app 1:946016760428:android:ba36c7d7f3b50497a71e49 \
   --release-notes "Detailed description of the current feature or improvement" \
   --groups "dev"
 ```
