@@ -1,0 +1,15 @@
+/experimental/*/target
+/.venv
+*.pte
+.DS_Store
+*.log
+
+# ExecuTorch and Android Build Artifacts
+/executorch-android/
+
+# Temporary and Test data
+/.test_assets/
+/demo/tmp/
+/engine/tmp/
+/tmp/
+.tmp_bin/

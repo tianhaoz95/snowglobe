@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - integration_test (0.0.1):
+    - Flutter
+  - rust_lib_snowglobedemo (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - rust_lib_snowglobedemo (from `.symlinks/plugins/rust_lib_snowglobedemo/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  rust_lib_snowglobedemo:
+    :path: ".symlinks/plugins/rust_lib_snowglobedemo/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  rust_lib_snowglobedemo: 1c60ed40a230b9dd668266de3d215965ddbb8699
+
+PODFILE CHECKSUM: e326fdfe1f96f556fc0df9112015791c82979feb
+
+COCOAPODS: 1.16.2
