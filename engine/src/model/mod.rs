@@ -2,6 +2,7 @@ pub mod qwen;
 pub mod qwen_pte;
 pub mod runner;
 pub mod llama_cpp;
+pub mod speculative;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
@@ -28,12 +29,14 @@ pub struct InitConfig {
     pub max_gen_len: usize,
     pub use_executorch: bool, // Deprecated, keep for backwards compat for now or replace entirely
     pub backend: BackendType,
+    pub speculate_tokens: usize, // 0 means disabled
 }
 
 pub enum EngineVariant {
     Burn(Box<dyn runner::ModelRunner>),
     ExecuTorch(Box<dyn runner::ModelRunner>),
     LlamaCpp(Box<dyn runner::ModelRunner>),
+    Speculative(Box<dyn runner::ModelRunner>),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -186,11 +186,13 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
         Ok(Box::new(Self::new(path.to_str().ok_or("Invalid path")?)?))
     }
 
-    fn forward(
-        &self,
-        session: &mut EngineSession,
-    ) -> Result<Vec<f32>, String> {
+    fn forward_all(&self, session: &mut EngineSession) -> Result<Vec<Vec<f32>>, String> {
         let total_len = session.tokens.len();
+        let num_new = total_len - session.offset;
+        if num_new == 0 {
+            return Err("No new tokens".to_string());
+        }
+
         let start = total_len.saturating_sub(128);
         
         let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
@@ -213,14 +215,31 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
         let num_processed = total_len - start;
         let effective_seq_len = num_processed.min(128);
 
-        let start_idx = (effective_seq_len - 1) * vocab_size;
-        let end_idx = start_idx + vocab_size;
-
-        if logits_vec.len() >= end_idx {
-            Ok(logits_vec[start_idx..end_idx].to_vec())
-        } else {
-            Err("Logits vector too small".to_string())
+        // Extract logits for all new tokens
+        let mut all_logits = Vec::with_capacity(num_new);
+        for i in 0..num_new {
+            let token_pos = (effective_seq_len - num_new + i);
+            let start_idx = token_pos * vocab_size;
+            let end_idx = start_idx + vocab_size;
+            if logits_vec.len() >= end_idx {
+                all_logits.push(logits_vec[start_idx..end_idx].to_vec());
+            } else {
+                return Err("Logits vector too small".to_string());
+            }
         }
+
+        // QwenPte doesn't have KV cache in this implementation, so we just update offset
+        session.offset = total_len;
+
+        Ok(all_logits)
+    }
+
+    fn forward(
+        &self,
+        session: &mut EngineSession,
+    ) -> Result<Vec<f32>, String> {
+        let all_logits = self.forward_all(session)?;
+        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
     }
 }
 

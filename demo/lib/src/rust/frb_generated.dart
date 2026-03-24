@@ -66,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1300864768;
+  int get rustContentHash => -1836583923;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -89,6 +89,8 @@ abstract class RustLibApi extends BaseApi {
     required String prompt,
     required int maxGenLen,
   });
+
+  Future<int> crateApiSimpleGetLastAcceptedCount({required String sessionId});
 
   Future<ModelInfo?> crateApiSimpleGetModelInfo();
 
@@ -215,6 +217,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<int> crateApiSimpleGetLastAcceptedCount({required String sessionId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSimpleGetLastAcceptedCountConstMeta,
+        argValues: [sessionId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSimpleGetLastAcceptedCountConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_last_accepted_count",
+        argNames: ["sessionId"],
+      );
+
+  @override
   Future<ModelInfo?> crateApiSimpleGetModelInfo() {
     return handler.executeNormal(
       NormalTask(
@@ -223,7 +256,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -250,7 +283,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -282,7 +315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -311,7 +344,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -381,13 +414,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   InitConfig dco_decode_init_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return InitConfig(
       vocabShards: dco_decode_u_32(arr[0]),
       maxGenLen: dco_decode_u_32(arr[1]),
       useExecutorch: dco_decode_bool(arr[2]),
       backend: dco_decode_backend_type(arr[3]),
+      speculateTokens: dco_decode_u_32(arr[4]),
     );
   }
 
@@ -504,11 +538,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_maxGenLen = sse_decode_u_32(deserializer);
     var var_useExecutorch = sse_decode_bool(deserializer);
     var var_backend = sse_decode_backend_type(deserializer);
+    var var_speculateTokens = sse_decode_u_32(deserializer);
     return InitConfig(
       vocabShards: var_vocabShards,
       maxGenLen: var_maxGenLen,
       useExecutorch: var_useExecutorch,
       backend: var_backend,
+      speculateTokens: var_speculateTokens,
     );
   }
 
@@ -651,6 +687,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.maxGenLen, serializer);
     sse_encode_bool(self.useExecutorch, serializer);
     sse_encode_backend_type(self.backend, serializer);
+    sse_encode_u_32(self.speculateTokens, serializer);
   }
 
   @protected

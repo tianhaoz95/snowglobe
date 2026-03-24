@@ -18,6 +18,7 @@ void main() {
           maxGenLen: 128,
           useExecutorch: true,
           backend: BackendType.execuTorch,
+          speculateTokens: 0,
         ),
       );
       print('Engine initialized successfully.');

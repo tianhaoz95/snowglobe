@@ -17,6 +17,11 @@ Future<String> initEngine({
   config: config,
 );
 
+Future<int> getLastAcceptedCount({required String sessionId}) => RustLib
+    .instance
+    .api
+    .crateApiSimpleGetLastAcceptedCount(sessionId: sessionId);
+
 Future<ModelInfo?> getModelInfo() =>
     RustLib.instance.api.crateApiSimpleGetModelInfo();
 
@@ -51,12 +56,14 @@ class InitConfig {
   final int maxGenLen;
   final bool useExecutorch;
   final BackendType backend;
+  final int speculateTokens;
 
   const InitConfig({
     required this.vocabShards,
     required this.maxGenLen,
     required this.useExecutorch,
     required this.backend,
+    required this.speculateTokens,
   });
 
   @override
@@ -64,7 +71,8 @@ class InitConfig {
       vocabShards.hashCode ^
       maxGenLen.hashCode ^
       useExecutorch.hashCode ^
-      backend.hashCode;
+      backend.hashCode ^
+      speculateTokens.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -74,7 +82,8 @@ class InitConfig {
           vocabShards == other.vocabShards &&
           maxGenLen == other.maxGenLen &&
           useExecutorch == other.useExecutorch &&
-          backend == other.backend;
+          backend == other.backend &&
+          speculateTokens == other.speculateTokens;
 }
 
 class ModelInfo {

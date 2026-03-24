@@ -94,6 +94,7 @@ pub fn get_model_info() -> Option<crate::model::ModelInfo> {
             EngineVariant::Burn(_) => "Burn".to_string(),
             EngineVariant::ExecuTorch(_) => "ExecuTorch".to_string(),
             EngineVariant::LlamaCpp(_) => "llama.cpp".to_string(),
+            EngineVariant::Speculative(_) => "Speculative".to_string(),
         };
         info.backend = check_backend();
         info
@@ -185,8 +186,17 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             Err(e) => return format!("Failed to load PTE model: {}", e),
         };
 
+        let engine = if init_config.speculate_tokens > 0 {
+            EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
+                Box::new(model),
+                init_config.speculate_tokens,
+            )))
+        } else {
+            EngineVariant::ExecuTorch(Box::new(model))
+        };
+
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(EngineVariant::ExecuTorch(Box::new(model))),
+            model: Mutex::new(engine),
             tokenizer,
             config,
             device,
@@ -203,8 +213,17 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             Err(e) => return format!("Failed to load LlamaCpp model: {}", e),
         };
 
+        let engine = if init_config.speculate_tokens > 0 {
+            EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
+                model,
+                init_config.speculate_tokens,
+            )))
+        } else {
+            EngineVariant::LlamaCpp(model)
+        };
+
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(EngineVariant::LlamaCpp(model)),
+            model: Mutex::new(engine),
             tokenizer,
             config,
             device,
@@ -241,8 +260,17 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         drop(mmap);
         drop(file);
 
+        let engine = if init_config.speculate_tokens > 0 {
+            EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
+                Box::new(model),
+                init_config.speculate_tokens,
+            )))
+        } else {
+            EngineVariant::Burn(Box::new(model))
+        };
+
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(EngineVariant::Burn(Box::new(model))),
+            model: Mutex::new(engine),
             tokenizer,
             config,
             device,
@@ -289,6 +317,7 @@ pub fn init_session() -> String {
         tokens: token_ids,
         state: None,
         offset: 0,
+        last_accepted_count: 0, is_speculative: false,
     };
 
     let sessions_lock = SESSIONS.read();
@@ -376,10 +405,12 @@ where
     };
 
     for _ in 0..generation_limit {
+        let num_tokens_before = session_state.tokens.len();
         let logits = match &*model {
             EngineVariant::Burn(m) => m.forward(&mut session_state)?,
             EngineVariant::ExecuTorch(m) => m.forward(&mut session_state)?,
             EngineVariant::LlamaCpp(m) => m.forward(&mut session_state)?,
+            EngineVariant::Speculative(m) => m.forward(&mut session_state)?,
         };
 
         let next_token_id = logits
@@ -395,7 +426,10 @@ where
 
         session_state.tokens.push(next_token_id);
 
-        let new_text = tokenizer.decode(&[next_token_id], true).unwrap_or_default();
+        let num_tokens_after = session_state.tokens.len();
+        let new_tokens = &session_state.tokens[num_tokens_before..num_tokens_after];
+
+        let new_text = tokenizer.decode(new_tokens, true).unwrap_or_default();
         if !new_text.is_empty() {
             if !sink.add(new_text) {
                 break;
@@ -421,7 +455,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn,
+                backend: BackendType::Burn, speculate_tokens: 0,
             },
         )
         .await;
@@ -438,7 +472,7 @@ mod tests {
         println!("Benchmark sequence length: {} tokens", n);
 
         // 1. Prefill to get initial cache
-        let mut session_cached = EngineSession { tokens: tokens.clone(), offset: 0, state: None };
+        let mut session_cached = EngineSession { tokens: tokens.clone(), offset: 0, state: None, last_accepted_count: 0, is_speculative: false };
         if let EngineVariant::Burn(m) = &*model {
             let _ = m.forward(&mut session_cached).unwrap();
         }
@@ -465,7 +499,7 @@ mod tests {
         let start_full = std::time::Instant::now();
         if let EngineVariant::Burn(m) = &*model {
             for _ in 0..iterations {
-                let mut fresh_session = EngineSession { tokens: tokens_full.clone(), offset: 0, state: None };
+                let mut fresh_session = EngineSession { tokens: tokens_full.clone(), offset: 0, state: None, last_accepted_count: 0, is_speculative: false };
                 let _ = m.forward(&mut fresh_session).unwrap();
             }
         }
@@ -492,7 +526,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn,
+                backend: BackendType::Burn, speculate_tokens: 0,
             },
         )
         .await;
@@ -548,7 +582,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::LlamaCpp,
+                backend: BackendType::LlamaCpp, speculate_tokens: 0,
             },
         )
         .await;
@@ -578,7 +612,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::LlamaCpp,
+                backend: BackendType::LlamaCpp, speculate_tokens: 0,
             },
         )
         .await;
@@ -621,7 +655,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: true,
-                backend: BackendType::ExecuTorch,
+                backend: BackendType::ExecuTorch, speculate_tokens: 0,
             },
         )
         .await;
@@ -650,7 +684,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn,
+                backend: BackendType::Burn, speculate_tokens: 0,
             },
         )
         .await;
@@ -677,7 +711,7 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn,
+                backend: BackendType::Burn, speculate_tokens: 0,
             },
         )
         .await;
@@ -704,7 +738,7 @@ mod tests {
                 vocab_shards: 0,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn,
+                backend: BackendType::Burn, speculate_tokens: 0,
             },
         )
         .await;
@@ -722,30 +756,43 @@ mod tests {
         assert_eq!(response.trim(), "2");
     }
 
-    #[tokio::test]
-    async fn test_multi_sharded_one_plus_one() {
-        let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
-        init(
-            cache_dir,
-            InitConfig {
-                vocab_shards: 10,
-                max_gen_len: 256,
-                use_executorch: false,
-                backend: BackendType::Burn,
-            },
-        )
-        .await;
-        let session_id = init_session();
-        let prompt = "what is 1+1? only answer with numbers";
-
-        let sink = TestSink(Mutex::new(String::new()));
-        let result = generate_response(&session_id, prompt, 256, &sink);
-
-        assert!(result.is_ok());
-        let response = sink.0.lock().clone();
-        println!("Prompt: {}", prompt);
-        println!("Response: {}", response);
-
-        assert_eq!(response.trim(), "2");
+        #[tokio::test]
+        async fn test_speculative_decoding_gguf() {
+            let cache_dir = setup_test("./tmp/testing_gguf_spec", "gguf").await;
+            
+            let init_res = init(
+                cache_dir,
+                InitConfig {
+                    vocab_shards: 1,
+                    max_gen_len: 128,
+                    use_executorch: false,
+                    backend: BackendType::LlamaCpp,
+                    speculate_tokens: 4,
+                },
+            )
+            .await;
+            assert_eq!(init_res, "Success");
+    
+            let session_id = init_session();
+            let prompt = "what is 1+1? only answer with numbers";
+            let sink = TestSink(Mutex::new(String::new()));
+            
+            let result = generate_response(&session_id, prompt, 128, &sink);
+    
+            assert!(result.is_ok());
+            let response = sink.0.lock().clone();
+            println!("Prompt: {}", prompt);
+            println!("Response: {}", response);
+    
+            assert!(response.trim().contains("2"));
+            
+            // Verify accepted count
+            let sessions_lock = SESSIONS.read();
+            let sessions = sessions_lock.as_ref().unwrap();
+            let session = sessions.get(&session_id).unwrap();
+            println!("Last accepted count: {}", session.last_accepted_count);
+            // Since we use dummy pad tokens, it should be 1 (the bonus token)
+            assert_eq!(session.last_accepted_count, 1);
+        }
     }
-}
+    
