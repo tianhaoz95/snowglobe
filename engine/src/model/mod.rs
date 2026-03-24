@@ -6,6 +6,7 @@ pub mod speculative;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
+use std::sync::Arc;
 use parking_lot::Mutex;
 use tokenizers::Tokenizer;
 
@@ -51,7 +52,7 @@ pub struct ModelInfo {
 }
 
 pub struct LoadedModel<B: Backend> {
-    pub model: Mutex<EngineVariant>,
+    pub model: Arc<Mutex<EngineVariant>>,
     pub tokenizer: Tokenizer,
     pub config: QwenConfig,
     pub device: B::Device,
