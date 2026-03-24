@@ -33,11 +33,13 @@ impl ModelRunner for LlamaCppRunner {
         Ok(Box::new(Self { model }))
     }
 
-    fn forward(&self, session: &mut EngineSession) -> Result<Vec<f32>, String> {
+    fn forward_all(&self, session: &mut EngineSession) -> Result<Vec<Vec<f32>>, String> {
         let backend = LLAMA_BACKEND.get().ok_or("LlamaBackend not initialized")?;
 
         if session.state.is_none() {
-            let ctx_params = LlamaContextParams::default().with_n_ctx(std::num::NonZeroU32::new(4096));
+            let ctx_params = LlamaContextParams::default()
+                .with_n_ctx(std::num::NonZeroU32::new(4096))
+                .with_n_seq_max(2); // Support at least 2 sequences for speculative decoding
             let ctx = self.model
                 .new_context(backend, ctx_params)
                 .map_err(|e| format!("Failed to create context: {}", e))?;
@@ -58,21 +60,52 @@ impl ModelRunner for LlamaCppRunner {
 
         let mut batch = LlamaBatch::new(num_new, 1);
         for (i, &token) in session.tokens[start..].iter().enumerate() {
-            let is_last = i == num_new - 1;
-            batch.add(llama_cpp_2::token::LlamaToken::new(token as i32), (start + i) as i32, &[0], is_last)
+            let pos = (start + i) as i32;
+            let seq_id = if session.is_speculative { 1 } else { 0 };
+            batch.add(llama_cpp_2::token::LlamaToken::new(token as i32), pos, &[seq_id], true)
                 .map_err(|e| format!("Failed to add to batch: {}", e))?;
         }
 
         ctx.decode(&mut batch).map_err(|e| format!("Decode failed: {}", e))?;
 
-        // Extract logits
-        let mut logits_vec = Vec::new();
-        // get_logits_ith returns &[f32]
-        let logits = ctx.get_logits_ith(batch.n_tokens() - 1);
-        logits_vec.extend_from_slice(logits);
+        // Extract logits for all tokens
+        let mut all_logits = Vec::with_capacity(num_new);
+        for i in 0..num_new {
+            let logits = ctx.get_logits_ith(i as i32);
+            all_logits.push(logits.to_vec());
+        }
         
         session.offset += num_new;
         
-        Ok(logits_vec)
+        Ok(all_logits)
+    }
+
+    fn forward(&self, session: &mut EngineSession) -> Result<Vec<f32>, String> {
+        let all_logits = self.forward_all(session)?;
+        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
+    }
+
+    fn prepare_speculative_verification(&self, session: &mut EngineSession) -> Result<(), String> {
+        if let Some(state) = &mut session.state {
+            let ctx_wrapper = state.downcast_mut::<SafeLlamaContext>().unwrap();
+            let ctx = &mut ctx_wrapper.0;
+            
+            // Copy sequence 0 to sequence 1 for speculative verification
+            ctx.copy_kv_cache_seq(0, 1, None, None)
+                .map_err(|e| format!("Failed to copy speculative KV cache: {:?}", e))?;
+        }
+        Ok(())
+    }
+
+    fn cleanup_speculative_verification(&self, session: &mut EngineSession) -> Result<(), String> {
+        if let Some(state) = &mut session.state {
+            let ctx_wrapper = state.downcast_mut::<SafeLlamaContext>().unwrap();
+            let ctx = &mut ctx_wrapper.0;
+            
+            // Clear sequence 1 after speculative verification
+            ctx.clear_kv_cache_seq(Some(1), None, None)
+                .map_err(|e| format!("Failed to clear speculative KV cache: {:?}", e))?;
+        }
+        Ok(())
     }
 }

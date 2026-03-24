@@ -307,10 +307,10 @@ impl<B: Backend> ModelRunner for Qwen<B> {
         Err("load not implemented for Qwen directly".to_string())
     }
 
-    fn forward(
+    fn forward_all(
         &self,
         session: &mut EngineSession,
-    ) -> Result<Vec<f32>, String> {
+    ) -> Result<Vec<Vec<f32>>, String> {
         let device = self.rms_norm.gamma.val().device();
         let start = session.offset;
         let num_new = session.tokens.len() - start;
@@ -340,11 +340,21 @@ impl<B: Backend> ModelRunner for Qwen<B> {
         session.offset += num_new;
 
         let [_, seq_len, vocab_size] = output.dims();
-        let next_token_logits = output
-            .slice([0..1, (seq_len - 1)..seq_len, 0..vocab_size])
-            .reshape([vocab_size]);
+        let flat_data = output.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))?;
+        let all_logits: Vec<Vec<f32>> = flat_data
+            .chunks(vocab_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
 
-        next_token_logits.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))
+        Ok(all_logits)
+    }
+
+    fn forward(
+        &self,
+        session: &mut EngineSession,
+    ) -> Result<Vec<f32>, String> {
+        let all_logits = self.forward_all(session)?;
+        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
     }
 }
 

@@ -44,6 +44,11 @@ class _MyAppState extends State<MyApp> {
   int _maxGenLen = 128;
   ModelInfo? _modelInfo;
 
+  // Speculative decoding
+  bool _useSpeculative = false;
+  int _speculateTokens = 4;
+  double _avgAcceptedTokens = 0;
+
   // Performance metrics
   int _tokenCount = 0;
   double _elapsedSeconds = 0;
@@ -107,6 +112,7 @@ class _MyAppState extends State<MyApp> {
           backend: USE_LLAMACPP
               ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+          speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
       );
       print('Engine initialized: $initResult');
@@ -279,6 +285,7 @@ class _MyAppState extends State<MyApp> {
           backend: USE_LLAMACPP
               ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+          speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
       );
       _sessionId = await initSession();
@@ -511,6 +518,7 @@ class _MyAppState extends State<MyApp> {
       _elapsedSeconds = 0;
       _tokensPerSecond = 0;
       _prefillTimeSeconds = null;
+      _avgAcceptedTokens = 0;
     });
 
     try {
@@ -523,6 +531,9 @@ class _MyAppState extends State<MyApp> {
         maxGenLen: _maxGenLen,
       );
 
+      int totalAccepted = 0;
+      int iterations = 0;
+
       await for (final token in tokenStream) {
         if (!mounted) break;
 
@@ -530,10 +541,19 @@ class _MyAppState extends State<MyApp> {
           _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
         }
 
+        final accepted = await getLastAcceptedCount(sessionId: _sessionId!);
+        if (accepted > 0) {
+          totalAccepted += accepted;
+          iterations++;
+        }
+
         setState(() {
           _response += token;
-          _tokenCount++;
+          _tokenCount += (accepted > 0 ? accepted : 1);
           _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+          if (iterations > 0) {
+            _avgAcceptedTokens = totalAccepted / iterations;
+          }
 
           // Generation speed calculation (tok/s after prefill)
           if (_prefillTimeSeconds != null) {
@@ -797,6 +817,65 @@ class _MyAppState extends State<MyApp> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
+                              'Speculative Decoding',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            Switch(
+                              value: _useSpeculative,
+                              onChanged: _isLoading
+                                  ? null
+                                  : (value) {
+                                      setState(() {
+                                        _useSpeculative = value;
+                                      });
+                                      _initEngine();
+                                    },
+                            ),
+                          ],
+                        ),
+                        if (_useSpeculative) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Speculated Tokens: $_speculateTokens',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: _speculateTokens.toDouble(),
+                            min: 1,
+                            max: 10,
+                            divisions: 9,
+                            label: _speculateTokens.toString(),
+                            onChanged: _isLoading
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _speculateTokens = value.round();
+                                    });
+                                  },
+                            onChangeEnd: _isLoading
+                                ? null
+                                : (value) {
+                                    _initEngine();
+                                  },
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
                               'Max Tokens: $_maxGenLen',
                               style: TextStyle(
                                 fontSize: 13,
@@ -981,6 +1060,12 @@ class _MyAppState extends State<MyApp> {
             '$_tokenCount tokens',
             colorScheme.secondary,
           ),
+          if (_useSpeculative)
+            _buildMetricItem(
+              Icons.check_circle_outline,
+              '${_avgAcceptedTokens.toStringAsFixed(2)} acc/step',
+              Colors.green,
+            ),
         ],
       ),
     );

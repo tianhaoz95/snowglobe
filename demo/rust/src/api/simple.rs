@@ -22,6 +22,7 @@ pub struct InitConfig {
     pub max_gen_len: u32,
     pub use_executorch: bool,
     pub backend: BackendType,
+    pub speculate_tokens: u32,
 }
 
 pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
@@ -32,9 +33,20 @@ pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
             max_gen_len: config.max_gen_len as usize,
             use_executorch: config.use_executorch,
             backend: config.backend.into(),
+            speculate_tokens: config.speculate_tokens as usize,
         },
     )
     .await
+}
+
+pub fn get_last_accepted_count(session_id: String) -> u32 {
+    let sessions_lock = snowglobe::SESSIONS.read();
+    if let Some(sessions) = sessions_lock.as_ref() {
+        if let Some(session) = sessions.get(&session_id) {
+            return session.last_accepted_count as u32;
+        }
+    }
+    0
 }
 
 pub struct ModelInfo {
