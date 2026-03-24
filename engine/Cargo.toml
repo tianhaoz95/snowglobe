@@ -23,6 +23,12 @@ tokio = { version = "1", features = ["fs", "macros"] }
 futures-util = "0.3"
 memmap2 = "0.9.9"
 llama-cpp-2 = "0.1"
+async-openai = { version = "0.34.0", features = ["chat-completion"] }
+tool-parser = "1.1.2"
+tokio-stream = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+async-trait = "0.1"
 
 [features]
 default = []

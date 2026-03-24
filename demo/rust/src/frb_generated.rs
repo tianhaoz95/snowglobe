@@ -121,7 +121,7 @@ fn wire__crate__api__simple__generate_response_impl(
     rust_vec_len_: i32,
     data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "generate_response",
             port: Some(port_),
@@ -137,7 +137,7 @@ fn wire__crate__api__simple__generate_response_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_session_id = <String>::sse_decode(&mut deserializer);
+            let api__session_id = <String>::sse_decode(&mut deserializer);
             let api_prompt = <String>::sse_decode(&mut deserializer);
             let api_max_gen_len = <u32>::sse_decode(&mut deserializer);
             let api_sink =
@@ -145,18 +145,22 @@ fn wire__crate__api__simple__generate_response_impl(
                     &mut deserializer,
                 );
             deserializer.end();
-            move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok({
-                        crate::api::simple::generate_response(
-                            api_session_id,
-                            api_prompt,
-                            api_max_gen_len,
-                            api_sink,
-                        );
-                    })?;
-                    Ok(output_ok)
-                })())
+            move |context| async move {
+                transform_result_sse::<_, ()>(
+                    (move || async move {
+                        let output_ok = Result::<_, ()>::Ok({
+                            crate::api::simple::generate_response(
+                                api__session_id,
+                                api_prompt,
+                                api_max_gen_len,
+                                api_sink,
+                            )
+                            .await;
+                        })?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )

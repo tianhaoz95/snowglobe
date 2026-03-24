@@ -16,14 +16,326 @@ pub use crate::model::{
 pub use crate::model::runner::{EngineSession, ModelRunner};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
-use burn::tensor::TensorData;
 use dashmap::DashMap;
-use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use safetensors::SafeTensors;
 use std::path::Path;
 use tokenizers::Tokenizer;
 use uuid::Uuid;
+
+use std::sync::Arc;
+use async_openai::types::chat::{
+    ChatCompletionRequestMessage, CreateChatCompletionRequest, CreateChatCompletionResponse,
+    CreateChatCompletionStreamResponse, ChatCompletionResponseMessage,
+    ChatChoice, ChatChoiceStream, ChatCompletionStreamResponseDelta,
+    ChatCompletionMessageToolCalls, ChatCompletionMessageToolCall,
+    ChatCompletionMessageToolCallChunk,
+    Role, FinishReason,
+    FunctionCallStream,
+    ChatCompletionRequestSystemMessageContent,
+    ChatCompletionRequestUserMessageContent,
+    ChatCompletionRequestAssistantMessageContent,
+    ChatCompletionRequestToolMessageContent,
+    ChatCompletionRequestUserMessageContentPart,
+    FunctionCall,
+};
+use std::pin::Pin;
+use futures_util::{Stream, StreamExt};
+use tool_parser::{ToolParser, QwenParser};
+
+pub enum ChatCompletionOutput {
+    Single(CreateChatCompletionResponse),
+    Stream(Pin<Box<dyn Stream<Item = Result<CreateChatCompletionStreamResponse, String>> + Send>>),
+}
+
+fn extract_system_content(content: &ChatCompletionRequestSystemMessageContent) -> String {
+    match content {
+        ChatCompletionRequestSystemMessageContent::Text(t) => t.clone(),
+        ChatCompletionRequestSystemMessageContent::Array(a) => a.iter().filter_map(|part| {
+            use async_openai::types::chat::ChatCompletionRequestSystemMessageContentPart::*;
+            match part {
+                Text(t) => Some(t.text.clone()),
+            }
+        }).collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn extract_user_content(content: &ChatCompletionRequestUserMessageContent) -> String {
+    match content {
+        ChatCompletionRequestUserMessageContent::Text(t) => t.clone(),
+        ChatCompletionRequestUserMessageContent::Array(a) => a.iter().filter_map(|part| {
+            match part {
+                ChatCompletionRequestUserMessageContentPart::Text(t) => Some(t.text.clone()),
+                _ => None,
+            }
+        }).collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn extract_assistant_content(content: &ChatCompletionRequestAssistantMessageContent) -> String {
+    match content {
+        ChatCompletionRequestAssistantMessageContent::Text(t) => t.clone(),
+        ChatCompletionRequestAssistantMessageContent::Array(a) => a.iter().filter_map(|part| {
+            use async_openai::types::chat::ChatCompletionRequestAssistantMessageContentPart::*;
+            match part {
+                Text(t) => Some(t.text.clone()),
+                _ => None,
+            }
+        }).collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn extract_tool_content(content: &ChatCompletionRequestToolMessageContent) -> String {
+    match content {
+        ChatCompletionRequestToolMessageContent::Text(t) => t.clone(),
+        ChatCompletionRequestToolMessageContent::Array(a) => a.iter().filter_map(|part| {
+            use async_openai::types::chat::ChatCompletionRequestToolMessageContentPart::*;
+            match part {
+                Text(t) => Some(t.text.clone()),
+            }
+        }).collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn forward_model(model_arc: &Arc<Mutex<EngineVariant>>, session_state: &mut EngineSession) -> Result<Vec<f32>, String> {
+    let model = model_arc.lock();
+    match &*model {
+        EngineVariant::Burn(m) => m.forward(session_state).map_err(|e| e.to_string()),
+        EngineVariant::ExecuTorch(m) => m.forward(session_state).map_err(|e| e.to_string()),
+        EngineVariant::LlamaCpp(m) => m.forward(session_state).map_err(|e| e.to_string()),
+        EngineVariant::Speculative(m) => m.forward(session_state).map_err(|e| e.to_string()),
+    }
+}
+
+pub async fn create_chat_completion(
+    request: CreateChatCompletionRequest,
+) -> Result<ChatCompletionOutput, String> {
+    let (model_arc, tokenizer_clone, init_config) = {
+        let global_lock = GLOBAL_MODEL.read();
+        let loaded_model = match &*global_lock {
+            Some(m) => m,
+            None => return Err("Error: Global model not initialized. Call init first.".to_string()),
+        };
+        (loaded_model.model.clone(), loaded_model.tokenizer.clone(), loaded_model.init_config.clone())
+    };
+
+    let im_start_id = match tokenizer_clone.token_to_id("<|im_start|>") {
+        Some(id) => id,
+        None => return Err("Error: Missing <|im_start|> in tokenizer".to_string()),
+    };
+    let im_end_id = match tokenizer_clone.token_to_id("<|im_end|>") {
+        Some(id) => id,
+        None => return Err("Error: Missing <|im_end|> in tokenizer".to_string()),
+    };
+    let newline_id = tokenizer_clone.token_to_id("\n").unwrap_or(198);
+
+    // Format prompt from messages
+    let mut token_ids = Vec::new();
+    for msg in &request.messages {
+        let (role, content) = match msg {
+            ChatCompletionRequestMessage::System(m) => ("system", extract_system_content(&m.content)),
+            ChatCompletionRequestMessage::User(m) => ("user", extract_user_content(&m.content)),
+            ChatCompletionRequestMessage::Assistant(m) => {
+                let content = m.content.as_ref().map(extract_assistant_content).unwrap_or_default();
+                ("assistant", content)
+            },
+            ChatCompletionRequestMessage::Tool(m) => ("tool", extract_tool_content(&m.content)),
+            _ => ("unknown", "".to_string()),
+        };
+
+        token_ids.push(im_start_id);
+        token_ids.extend(tokenizer_clone.encode(role, false).unwrap().get_ids());
+        token_ids.push(newline_id);
+        token_ids.extend(tokenizer_clone.encode(content.as_str(), false).unwrap().get_ids());
+        token_ids.push(im_end_id);
+        token_ids.push(newline_id);
+    }
+
+    // Prepare assistant turn
+    token_ids.push(im_start_id);
+    token_ids.extend(tokenizer_clone.encode("assistant", false).unwrap().get_ids());
+    token_ids.push(newline_id);
+
+    let session_state = EngineSession {
+        tokens: token_ids,
+        state: None,
+        offset: 0,
+        last_accepted_count: 0,
+        is_speculative: false,
+    };
+
+    #[allow(deprecated)]
+    let generation_limit = request.max_completion_tokens.or(request.max_tokens).unwrap_or(init_config.max_gen_len as u32);
+    let is_streaming_request = request.stream.unwrap_or(false);
+
+    let im_end_id = im_end_id;
+
+    let output_stream = async_stream::try_stream! {
+        let mut session_state = session_state;
+        let mut full_text = String::new();
+        
+        for _ in 0..generation_limit {
+            let num_tokens_before = session_state.tokens.len();
+            let logits = forward_model(&model_arc, &mut session_state)?;
+
+            let next_token_id = logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i as u32)
+                .ok_or_else(|| "Error: Logits are empty".to_string())?;
+
+            if next_token_id == im_end_id {
+                break;
+            }
+
+            session_state.tokens.push(next_token_id);
+            let new_text = tokenizer_clone.decode(&session_state.tokens[num_tokens_before..], true).map_err(|e| e.to_string())?;
+            
+            if !new_text.is_empty() {
+                full_text.push_str(&new_text);
+                
+                yield CreateChatCompletionStreamResponse {
+                    id: Uuid::new_v4().to_string(),
+                    choices: vec![ChatChoiceStream {
+                        index: 0,
+                        delta: ChatCompletionStreamResponseDelta {
+                            content: Some(new_text),
+                            role: Some(Role::Assistant),
+                            tool_calls: None,
+                            refusal: None,
+                            #[allow(deprecated)]
+                            function_call: None,
+                        },
+                        finish_reason: None,
+                        logprobs: None,
+                    }],
+                    created: 0,
+                    model: "snowglobe".to_string(),
+                    object: "chat.completion.chunk".to_string(),
+                    #[allow(deprecated)]
+                    system_fingerprint: None,
+                    service_tier: None,
+                    usage: None,
+                };
+            }
+        }
+
+        // After loop, check for tool calls in the full text
+        let parser = QwenParser::new();
+        let (_cleaned_text, tool_calls) = parser.parse_complete(&full_text).await.map_err(|e| e.to_string())?;
+        if !tool_calls.is_empty() {
+            let openai_tool_calls: Vec<ChatCompletionMessageToolCallChunk> = tool_calls.into_iter().enumerate().map(|(idx, tc)| {
+                ChatCompletionMessageToolCallChunk {
+                    index: idx as u32,
+                    id: Some(format!("call_{}", idx)),
+                    r#type: Some(async_openai::types::chat::FunctionType::Function),
+                    function: Some(FunctionCallStream {
+                        name: Some(tc.function.name),
+                        arguments: Some(tc.function.arguments),
+                    }),
+                }
+            }).collect();
+
+            yield CreateChatCompletionStreamResponse {
+                id: Uuid::new_v4().to_string(),
+                choices: vec![ChatChoiceStream {
+                    index: 0,
+                    delta: ChatCompletionStreamResponseDelta {
+                        content: None,
+                        role: None,
+                        tool_calls: Some(openai_tool_calls),
+                        refusal: None,
+                        #[allow(deprecated)]
+                        function_call: None,
+                    },
+                    finish_reason: None,
+                    logprobs: None,
+                }],
+                created: 0,
+                model: "snowglobe".to_string(),
+                object: "chat.completion.chunk".to_string(),
+                #[allow(deprecated)]
+                system_fingerprint: None,
+                service_tier: None,
+                usage: None,
+            };
+        }
+    };
+
+    if is_streaming_request {
+        Ok(ChatCompletionOutput::Stream(Box::pin(output_stream)))
+    } else {
+        let mut pinned_stream = Box::pin(output_stream);
+        let mut full_text = String::new();
+        let mut final_tool_calls = None;
+        let mut last_id = Uuid::new_v4().to_string();
+        let mut last_model = "snowglobe".to_string();
+
+        while let Some(chunk_res) = pinned_stream.next().await {
+            let chunk = chunk_res?;
+            last_id = chunk.id;
+            last_model = chunk.model;
+            for choice in chunk.choices {
+                if let Some(content) = choice.delta.content {
+                    full_text.push_str(&content);
+                }
+                if let Some(tool_calls) = choice.delta.tool_calls {
+                    let mut calls = Vec::new();
+                    for tc_chunk in tool_calls {
+                        if let Some(func) = tc_chunk.function {
+                            calls.push(ChatCompletionMessageToolCalls::Function(ChatCompletionMessageToolCall {
+                                id: tc_chunk.id.unwrap_or_else(|| format!("call_{}", calls.len())),
+                                function: FunctionCall {
+                                    name: func.name.unwrap_or_default(),
+                                    arguments: func.arguments.unwrap_or_default(),
+                                },
+                            }));
+                        }
+                    }
+                    if !calls.is_empty() {
+                        final_tool_calls = Some(calls);
+                    }
+                }
+            }
+        }
+
+        let parser = QwenParser::new();
+        let (cleaned_text, _tool_calls_from_text) = parser.parse_complete(&full_text).await.map_err(|e| e.to_string())?;
+
+        let response = CreateChatCompletionResponse {
+            id: last_id,
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatCompletionResponseMessage {
+                    content: if final_tool_calls.is_some() { 
+                        if cleaned_text.is_empty() { None } else { Some(cleaned_text) }
+                    } else { Some(full_text) },
+                    role: Role::Assistant,
+                    tool_calls: final_tool_calls,
+                    refusal: None,
+                    annotations: None,
+                    #[allow(deprecated)]
+                    function_call: None,
+                    audio: None,
+                },
+                finish_reason: Some(FinishReason::Stop),
+                logprobs: None,
+            }],
+            created: 0,
+            model: last_model,
+            object: "chat.completion".to_string(),
+            #[allow(deprecated)]
+            system_fingerprint: None,
+            service_tier: None,
+            usage: None,
+        };
+
+        Ok(ChatCompletionOutput::Single(response))
+    }
+}
+
+
 
 /// Generates a completion using an ExecuTorch .pte model.
 ///
@@ -100,8 +412,6 @@ pub fn get_model_info() -> Option<crate::model::ModelInfo> {
         info
     })
 }
-
-static GPU_SETUP: once_cell::sync::OnceCell<()> = once_cell::sync::OnceCell::new();
 
 pub async fn init(cache_dir: String, init_config: InitConfig) -> String {
     let device = init_platform(&init_config).await;
@@ -196,7 +506,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         };
 
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(engine),
+            model: Arc::new(Mutex::new(engine)),
             tokenizer,
             config,
             device,
@@ -223,7 +533,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         };
 
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(engine),
+            model: Arc::new(Mutex::new(engine)),
             tokenizer,
             config,
             device,
@@ -270,7 +580,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
         };
 
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Mutex::new(engine),
+            model: Arc::new(Mutex::new(engine)),
             tokenizer,
             config,
             device,
@@ -426,10 +736,7 @@ where
 
         session_state.tokens.push(next_token_id);
 
-        let num_tokens_after = session_state.tokens.len();
-        let new_tokens = &session_state.tokens[num_tokens_before..num_tokens_after];
-
-        let new_text = tokenizer.decode(new_tokens, true).unwrap_or_default();
+        let new_text = tokenizer.decode(&session_state.tokens[num_tokens_before..], true).unwrap_or_default();
         if !new_text.is_empty() {
             if !sink.add(new_text) {
                 break;
@@ -794,5 +1101,143 @@ mod tests {
             // Since we use dummy pad tokens, it should be 1 (the bonus token)
             assert_eq!(session.last_accepted_count, 1);
         }
+
+    #[tokio::test]
+    async fn test_openai_api_interface() {
+        let cache_dir = setup_test("./tmp/testing_openai", "qwen2.5").await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::Burn, speculate_tokens: 0,
+            },
+        )
+        .await;
+
+        let request = CreateChatCompletionRequest {
+            model: "snowglobe".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::User(async_openai::types::chat::ChatCompletionRequestUserMessage {
+                    content: ChatCompletionRequestUserMessageContent::Text("what is 1+1? only answer with numbers".to_string()),
+                    name: None,
+                }),
+            ],
+            max_completion_tokens: Some(10),
+            ..Default::default()
+        };
+
+        let response = create_chat_completion(request).await.unwrap();
+        match response {
+            ChatCompletionOutput::Single(res) => {
+                let text = res.choices[0].message.content.as_ref().unwrap();
+                println!("OpenAI Response: {}", text);
+                assert!(text.contains("2"));
+            }
+            _ => panic!("Expected single response"),
+        }
     }
-    
+
+    #[tokio::test]
+    async fn test_openai_api_function_calling() {
+        let cache_dir = setup_test("./tmp/testing_openai_func", "qwen2.5").await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::Burn, speculate_tokens: 0,
+            },
+        )
+        .await;
+
+        // We'll mock a prompt that specifically asks for a tool call in the expected format if possible,
+        // or we just check if the parser works when the model outputs it.
+        // To make it deterministic for the test, we can try to use a very specific prompt.
+        let prompt = "Call the function 'get_weather' with argument 'city' as 'London'. Use the format: <tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"London\"}}\n</tool_call>";
+        
+        let request = CreateChatCompletionRequest {
+            model: "snowglobe".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::User(async_openai::types::chat::ChatCompletionRequestUserMessage {
+                    content: ChatCompletionRequestUserMessageContent::Text(prompt.to_string()),
+                    name: None,
+                }),
+            ],
+            max_completion_tokens: Some(100),
+            ..Default::default()
+        };
+
+        let response = create_chat_completion(request).await.unwrap();
+        match response {
+            ChatCompletionOutput::Single(res) => {
+                let tool_calls = res.choices[0].message.tool_calls.as_ref().expect("Expected tool calls");
+                assert_eq!(tool_calls.len(), 1);
+                match &tool_calls[0] {
+                    ChatCompletionMessageToolCalls::Function(tc) => {
+                        assert_eq!(tc.function.name, "get_weather");
+                        assert!(tc.function.arguments.contains("London"));
+                    }
+                    _ => panic!("Expected function tool call"),
+                }
+            }
+            _ => panic!("Expected single response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_openai_api_streaming() {
+        let cache_dir = setup_test("./tmp/testing_openai_stream", "qwen2.5").await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::Burn, speculate_tokens: 0,
+            },
+        )
+        .await;
+
+        let request = CreateChatCompletionRequest {
+            model: "snowglobe".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::User(async_openai::types::chat::ChatCompletionRequestUserMessage {
+                    content: ChatCompletionRequestUserMessageContent::Text("what is 1+1? only answer with numbers".to_string()),
+                    name: None,
+                }),
+            ],
+            max_completion_tokens: Some(10),
+            stream: Some(true),
+            ..Default::default()
+        };
+
+        let response = create_chat_completion(request).await.unwrap();
+        match response {
+            ChatCompletionOutput::Stream(mut stream) => {
+                let mut full_text = String::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.unwrap();
+                    if let Some(content) = &chunk.choices[0].delta.content {
+                        full_text.push_str(content);
+                    }
+                }
+                println!("Streaming Response: {}", full_text);
+                assert!(full_text.contains("2"));
+            }
+            _ => panic!("Expected streaming response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_qwen_parser_direct() {
+        let parser = QwenParser::new();
+        let text = "Certainly! <tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"London\"}}\n</tool_call>";
+        let (cleaned, tool_calls) = parser.parse_complete(text).await.unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].function.name, "get_weather");
+        assert!(cleaned.contains("Certainly!"));
+    }
+    }
