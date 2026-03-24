@@ -110,23 +110,24 @@ fn forward_model(model_arc: &Arc<Mutex<EngineVariant>>, session_state: &mut Engi
 pub async fn create_chat_completion(
     request: CreateChatCompletionRequest,
 ) -> Result<ChatCompletionOutput, String> {
-    let global_lock = GLOBAL_MODEL.read();
-    let loaded_model = match &*global_lock {
-        Some(m) => m,
-        None => return Err("Error: Global model not initialized. Call init first.".to_string()),
+    let (model_arc, tokenizer_clone, init_config) = {
+        let global_lock = GLOBAL_MODEL.read();
+        let loaded_model = match &*global_lock {
+            Some(m) => m,
+            None => return Err("Error: Global model not initialized. Call init first.".to_string()),
+        };
+        (loaded_model.model.clone(), loaded_model.tokenizer.clone(), loaded_model.init_config.clone())
     };
-    let tokenizer = &loaded_model.tokenizer;
-    let init_config = &loaded_model.init_config;
 
-    let im_start_id = match tokenizer.token_to_id("<|im_start|>") {
+    let im_start_id = match tokenizer_clone.token_to_id("<|im_start|>") {
         Some(id) => id,
         None => return Err("Error: Missing <|im_start|> in tokenizer".to_string()),
     };
-    let im_end_id = match tokenizer.token_to_id("<|im_end|>") {
+    let im_end_id = match tokenizer_clone.token_to_id("<|im_end|>") {
         Some(id) => id,
         None => return Err("Error: Missing <|im_end|> in tokenizer".to_string()),
     };
-    let newline_id = tokenizer.token_to_id("\n").unwrap_or(198);
+    let newline_id = tokenizer_clone.token_to_id("\n").unwrap_or(198);
 
     // Format prompt from messages
     let mut token_ids = Vec::new();
@@ -143,16 +144,16 @@ pub async fn create_chat_completion(
         };
 
         token_ids.push(im_start_id);
-        token_ids.extend(tokenizer.encode(role, false).unwrap().get_ids());
+        token_ids.extend(tokenizer_clone.encode(role, false).unwrap().get_ids());
         token_ids.push(newline_id);
-        token_ids.extend(tokenizer.encode(content.as_str(), false).unwrap().get_ids());
+        token_ids.extend(tokenizer_clone.encode(content.as_str(), false).unwrap().get_ids());
         token_ids.push(im_end_id);
         token_ids.push(newline_id);
     }
 
     // Prepare assistant turn
     token_ids.push(im_start_id);
-    token_ids.extend(tokenizer.encode("assistant", false).unwrap().get_ids());
+    token_ids.extend(tokenizer_clone.encode("assistant", false).unwrap().get_ids());
     token_ids.push(newline_id);
 
     let session_state = EngineSession {
@@ -167,8 +168,6 @@ pub async fn create_chat_completion(
     let generation_limit = request.max_completion_tokens.or(request.max_tokens).unwrap_or(init_config.max_gen_len as u32);
     let is_streaming_request = request.stream.unwrap_or(false);
 
-    let model_arc = loaded_model.model.clone();
-    let tokenizer_clone = tokenizer.clone();
     let im_end_id = im_end_id;
 
     let output_stream = async_stream::try_stream! {

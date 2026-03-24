@@ -85,21 +85,37 @@ pub fn init_session() -> String {
     snowglobe::init_session()
 }
 
-struct FrbSink(StreamSink<String>);
+use async_openai::types::chat::{ChatCompletionRequestMessage, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest};
+use futures_util::StreamExt;
 
-impl snowglobe::StreamSink<String> for FrbSink {
-    fn add(&self, value: String) -> bool {
-        self.0.add(value).is_ok()
-    }
-}
-
-pub fn generate_response(
-    session_id: String,
+pub async fn generate_response(
+    _session_id: String,
     prompt: String,
     max_gen_len: u32,
     sink: StreamSink<String>,
 ) {
-    let _ = snowglobe::generate_response(&session_id, &prompt, max_gen_len, FrbSink(sink));
+    let request = CreateChatCompletionRequest {
+        model: "snowglobe".to_string(),
+        messages: vec![ChatCompletionRequestMessage::User(
+            ChatCompletionRequestUserMessage {
+                content: ChatCompletionRequestUserMessageContent::Text(prompt),
+                name: None,
+            },
+        )],
+        max_completion_tokens: Some(max_gen_len),
+        stream: Some(true),
+        ..Default::default()
+    };
+
+    if let Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) = snowglobe::create_chat_completion(request).await {
+        while let Some(chunk_res) = stream.next().await {
+            if let Ok(chunk) = chunk_res {
+                if let Some(content) = &chunk.choices[0].delta.content {
+                    let _ = sink.add(content.clone());
+                }
+            }
+        }
+    }
 }
 
 pub fn experimental_completion_with_pte(pte_path: String, prompt: String) -> String {

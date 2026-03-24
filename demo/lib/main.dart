@@ -656,7 +656,7 @@ class _MyAppState extends State<MyApp> {
                           borderRadius: BorderRadius.circular(10),
                           child: LinearProgressIndicator(
                             minHeight: 6,
-                            backgroundColor: colorScheme.surfaceVariant,
+                            backgroundColor: colorScheme.surfaceContainerHighest,
                             valueColor: AlwaysStoppedAnimation<Color>(
                               colorScheme.secondary,
                             ),
@@ -1035,7 +1035,7 @@ class _MyAppState extends State<MyApp> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceVariant.withOpacity(0.3),
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
         border: Border(
           top: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.5)),
         ),
