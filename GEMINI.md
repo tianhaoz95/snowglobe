@@ -16,6 +16,14 @@ The project follows a hybrid architecture combining a high-performance Rust core
 - `app/`: The primary Flutter application workspace.
 - `packages/snowglobe_openai`: A Flutter package exposing an OpenAI-compatible API for the Snowglobe engine.
 
+## Development Workflow
+
+### Git Branching
+At the start of a task, if the local repository is on the `main` branch, always check out to a new branch with a name reflecting the task that will be implemented.
+```bash
+git checkout -b <task-name>
+```
+
 ## Development & Testing
 
 When making changes to the Rust **engine**, verify the implementation using the following commands:
