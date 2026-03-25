@@ -1,7 +1,7 @@
 name: snowglobe_openai
 description: "A new Flutter package project."
-version: 0.0.1
-homepage:
+version: 0.0.1-dev.1
+repository: https://github.com/hejitech/snowglobe
 
 environment:
   sdk: ^3.11.1
@@ -10,11 +10,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_rust_bridge: 2.11.1
+  flutter_rust_bridge: ^2.11.1
   openai_dart: ^0.1.0-dev.13
   path_provider: ^2.1.5
-  rust_lib_snowglobe_openai:
-    path: rust_builder
+  plugin_platform_interface: ^2.0.2
 
 dev_dependencies:
   flutter_test:
@@ -26,6 +25,18 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
 
   # To add assets to your package, add an assets section, like this:
   # assets:
