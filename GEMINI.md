@@ -118,7 +118,7 @@ firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.ap
 
 ### Publishing `snowglobe_openai` to pub.dev
 
-The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps the Rust inference engine. To publish it to pub.dev, follow these steps:
+The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps the Rust inference engine. The initial version `0.0.1-dev.1` has been published. To publish subsequent versions, follow these steps:
 
 **1. Prerequisites:**
 - Ensure you have a valid Google account with permissions to publish.
