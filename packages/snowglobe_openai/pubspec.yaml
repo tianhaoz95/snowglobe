@@ -1,5 +1,5 @@
 name: snowglobe_openai
-description: "A new Flutter package project."
+description: "Snowglobe OpenAI is a Flutter package providing high-performance, cross-platform LLM inference with an OpenAI-compatible API, powered by Rust and Burn."
 version: 0.0.1-dev.1
 repository: https://github.com/hejitech/snowglobe
 
