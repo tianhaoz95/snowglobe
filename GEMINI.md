@@ -14,6 +14,7 @@ The project follows a hybrid architecture combining a high-performance Rust core
 - `engine/`: The core Rust library containing the model definitions, tensor operations, and inference logic.
 - `demo/`: A Flutter demonstration and benchmark application showcasing the engine's capabilities, including model downloading and streaming response generation.
 - `app/`: The primary Flutter application workspace.
+- `packages/snowglobe_openai`: A Flutter package exposing an OpenAI-compatible API for the Snowglobe engine.
 
 ## Development & Testing
 
@@ -109,11 +110,39 @@ flutter build apk --release --target-platform android-arm64,android-x64
 
 # 2. Distribute to Firebase
 # The App ID can be found in demo/lib/firebase_options.dart (under FirebaseOptions android)
-firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
-  --app 1:946016760428:android:ba36c7d7f3b50497a71e49 \
-  --release-notes "Detailed description of the current feature or improvement" \
-  --groups "dev"
+firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \\
+  --app 1:946016760428:android:ba36c7d7f3b50497a71e49 \\
+  --release-notes \"Detailed description of the current feature or improvement\" \\
+  --groups \"dev\"
 ```
+
+### Publishing `snowglobe_openai` to pub.dev
+
+The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps the Rust inference engine. The initial version `0.0.1-dev.1` has been published. To publish subsequent versions, follow these steps:
+
+**1. Prerequisites:**
+- Ensure you have a valid Google account with permissions to publish.
+- Ensure the Rust bridge is up to date:
+  ```bash
+  cd packages/snowglobe_openai
+  flutter_rust_bridge_codegen generate
+  ```
+
+**2. Validate the package:**
+Always run a dry run to ensure the package configuration is valid and has no warnings:
+```bash
+cd packages/snowglobe_openai
+flutter pub publish --dry-run
+```
+
+**3. Publish:**
+Run the following command and follow the interactive authentication flow in your browser:
+```bash
+cd packages/snowglobe_openai
+flutter pub publish
+```
+
+*Note: The package has been restructured to merge the `rust_builder` plugin directly into the main package for better compatibility with pub.dev's dependency requirements.*
 
 ### Targeting Different Backends
 
