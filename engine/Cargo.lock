@@ -5977,7 +5977,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "burn",
- "burn-autodiff",
  "burn-tensor",
  "burn-wgpu",
  "bytemuck",
