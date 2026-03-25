@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`
 
 Future<String> initEngine({
   required String cacheDir,
@@ -19,6 +19,26 @@ Future<String> chatCompletion({required String requestJson}) =>
 
 Stream<String> chatCompletionStream({required String requestJson}) =>
     RustLib.instance.api.crateApiChatCompletionStream(requestJson: requestJson);
+
+Future<ModelInfo?> getModelInfo() =>
+    RustLib.instance.api.crateApiGetModelInfo();
+
+Future<String> checkBackend() => RustLib.instance.api.crateApiCheckBackend();
+
+Future<String> initSession() => RustLib.instance.api.crateApiInitSession();
+
+Future<int> getLastAcceptedCount({required String sessionId}) =>
+    RustLib.instance.api.crateApiGetLastAcceptedCount(sessionId: sessionId);
+
+Stream<String> generateResponse({
+  required String sessionId,
+  required String prompt,
+  required int maxGenLen,
+}) => RustLib.instance.api.crateApiGenerateResponse(
+  sessionId: sessionId,
+  prompt: prompt,
+  maxGenLen: maxGenLen,
+);
 
 enum BackendType { burn, execuTorch, llamaCpp }
 
@@ -55,4 +75,47 @@ class InitConfig {
           useExecutorch == other.useExecutorch &&
           backend == other.backend &&
           speculateTokens == other.speculateTokens;
+}
+
+class ModelInfo {
+  final BigInt paramCount;
+  final BigInt modelSizeBytes;
+  final int numLayers;
+  final int hiddenSize;
+  final int vocabSize;
+  final String runner;
+  final String backend;
+
+  const ModelInfo({
+    required this.paramCount,
+    required this.modelSizeBytes,
+    required this.numLayers,
+    required this.hiddenSize,
+    required this.vocabSize,
+    required this.runner,
+    required this.backend,
+  });
+
+  @override
+  int get hashCode =>
+      paramCount.hashCode ^
+      modelSizeBytes.hashCode ^
+      numLayers.hashCode ^
+      hiddenSize.hashCode ^
+      vocabSize.hashCode ^
+      runner.hashCode ^
+      backend.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ModelInfo &&
+          runtimeType == other.runtimeType &&
+          paramCount == other.paramCount &&
+          modelSizeBytes == other.modelSizeBytes &&
+          numLayers == other.numLayers &&
+          hiddenSize == other.hiddenSize &&
+          vocabSize == other.vocabSize &&
+          runner == other.runner &&
+          backend == other.backend;
 }

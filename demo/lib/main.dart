@@ -3,8 +3,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:snowglobedemo/src/rust/api/simple.dart';
-import 'package:snowglobedemo/src/rust/frb_generated.dart';
+import 'package:snowglobe_openai/snowglobe_openai.dart';
 import 'dart:io';
 
 enum ModelType { qwen2_5, qwen3, qwen3_5 }
@@ -76,12 +75,12 @@ class _MyAppState extends State<MyApp> {
     try {
       if (!_isRustLibInitialized) {
         print('Initializing Rust library...');
-        await RustLib.init();
+        await SnowglobeOpenAI.initRust();
         _isRustLibInitialized = true;
         print('Rust library initialized');
       }
 
-      final backend = await checkBackend();
+      final backend = await SnowglobeOpenAI.checkBackend();
       print('Backend check: $backend');
 
       final appSupportDir = await getApplicationSupportDirectory();
@@ -103,7 +102,7 @@ class _MyAppState extends State<MyApp> {
         return;
       }
 
-      final initResult = await initEngine(
+      final initResult = await SnowglobeOpenAI.initEngine(
         cacheDir: cacheDir.path,
         config: InitConfig(
           vocabShards: 8,
@@ -121,12 +120,12 @@ class _MyAppState extends State<MyApp> {
         throw Exception(initResult);
       }
 
-      _sessionId = await initSession();
+      _sessionId = await SnowglobeOpenAI.initSession();
       if (_sessionId!.startsWith('Error:')) {
         throw Exception(_sessionId);
       }
       
-      final modelInfo = await getModelInfo();
+      final modelInfo = await SnowglobeOpenAI.getModelInfo();
 
       if (mounted) {
         setState(() {
@@ -276,7 +275,7 @@ class _MyAppState extends State<MyApp> {
         _response = 'Model installed. Re-initializing engine...';
       });
 
-      final initResult = await initEngine(
+      await SnowglobeOpenAI.initEngine(
         cacheDir: cacheDir.path,
         config: InitConfig(
           vocabShards: 8,
@@ -288,8 +287,8 @@ class _MyAppState extends State<MyApp> {
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
       );
-      _sessionId = await initSession();
-      final modelInfo = await getModelInfo();
+      _sessionId = await SnowglobeOpenAI.initSession();
+      final modelInfo = await SnowglobeOpenAI.getModelInfo();
 
       setState(() {
         _isEngineReady = true;
@@ -525,7 +524,7 @@ class _MyAppState extends State<MyApp> {
       final String currentPrompt = _promptController.text;
       final stopwatch = Stopwatch()..start();
 
-      final tokenStream = generateResponse(
+      final tokenStream = SnowglobeOpenAI.generateResponse(
         sessionId: _sessionId!,
         prompt: currentPrompt,
         maxGenLen: _maxGenLen,
@@ -541,7 +540,7 @@ class _MyAppState extends State<MyApp> {
           _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
         }
 
-        final accepted = await getLastAcceptedCount(sessionId: _sessionId!);
+        final accepted = await SnowglobeOpenAI.getLastAcceptedCount(sessionId: _sessionId!);
         if (accepted > 0) {
           totalAccepted += accepted;
           iterations++;

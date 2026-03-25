@@ -3,7 +3,7 @@ import 'package:openai_dart/openai_dart.dart';
 import 'package:snowglobe_openai/src/rust/api.dart' as rust_api;
 import 'package:snowglobe_openai/src/rust/frb_generated.dart';
 
-export 'package:snowglobe_openai/src/rust/api.dart' show InitConfig, BackendType;
+export 'package:snowglobe_openai/src/rust/api.dart' show InitConfig, BackendType, ModelInfo;
 
 class SnowglobeOpenAI {
   static Future<void> initRust() async {
@@ -33,5 +33,33 @@ class SnowglobeOpenAI {
     await for (final chunkJson in stream) {
       yield CreateChatCompletionStreamResponse.fromJson(jsonDecode(chunkJson));
     }
+  }
+
+  static Future<rust_api.ModelInfo?> getModelInfo() async {
+    return rust_api.getModelInfo();
+  }
+
+  static Future<String> checkBackend() async {
+    return rust_api.checkBackend();
+  }
+
+  static Future<String> initSession() async {
+    return rust_api.initSession();
+  }
+
+  static Future<int> getLastAcceptedCount({required String sessionId}) async {
+    return rust_api.getLastAcceptedCount(sessionId: sessionId);
+  }
+
+  static Stream<String> generateResponse({
+    required String sessionId,
+    required String prompt,
+    required int maxGenLen,
+  }) {
+    return rust_api.generateResponse(
+      sessionId: sessionId,
+      prompt: prompt,
+      maxGenLen: maxGenLen,
+    );
   }
 }

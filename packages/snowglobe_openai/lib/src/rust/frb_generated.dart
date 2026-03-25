@@ -66,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -690453426;
+  int get rustContentHash => 668707948;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -81,12 +81,26 @@ abstract class RustLibApi extends BaseApi {
 
   Stream<String> crateApiChatCompletionStream({required String requestJson});
 
+  Future<String> crateApiCheckBackend();
+
+  Stream<String> crateApiGenerateResponse({
+    required String sessionId,
+    required String prompt,
+    required int maxGenLen,
+  });
+
+  Future<int> crateApiGetLastAcceptedCount({required String sessionId});
+
+  Future<ModelInfo?> crateApiGetModelInfo();
+
   Future<void> crateApiInitApp();
 
   Future<String> crateApiInitEngine({
     required String cacheDir,
     required InitConfig config,
   });
+
+  Future<String> crateApiInitSession();
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -164,7 +178,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiInitApp() {
+  Future<String> crateApiCheckBackend() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -173,6 +187,132 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCheckBackendConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCheckBackendConstMeta =>
+      const TaskConstMeta(debugName: "check_backend", argNames: []);
+
+  @override
+  Stream<String> crateApiGenerateResponse({
+    required String sessionId,
+    required String prompt,
+    required int maxGenLen,
+  }) {
+    final sink = RustStreamSink<String>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_String(sessionId, serializer);
+            sse_encode_String(prompt, serializer);
+            sse_encode_u_32(maxGenLen, serializer);
+            sse_encode_StreamSink_String_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 4,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiGenerateResponseConstMeta,
+          argValues: [sessionId, prompt, maxGenLen, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiGenerateResponseConstMeta => const TaskConstMeta(
+    debugName: "generate_response",
+    argNames: ["sessionId", "prompt", "maxGenLen", "sink"],
+  );
+
+  @override
+  Future<int> crateApiGetLastAcceptedCount({required String sessionId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sessionId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiGetLastAcceptedCountConstMeta,
+        argValues: [sessionId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetLastAcceptedCountConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_last_accepted_count",
+        argNames: ["sessionId"],
+      );
+
+  @override
+  Future<ModelInfo?> crateApiGetModelInfo() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_model_info,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiGetModelInfoConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetModelInfoConstMeta =>
+      const TaskConstMeta(debugName: "get_model_info", argNames: []);
+
+  @override
+  Future<void> crateApiInitApp() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
             port: port_,
           );
         },
@@ -204,7 +344,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 8,
             port: port_,
           );
         },
@@ -223,6 +363,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "init_engine",
     argNames: ["cacheDir", "config"],
   );
+
+  @override
+  Future<String> crateApiInitSession() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiInitSessionConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInitSessionConstMeta =>
+      const TaskConstMeta(debugName: "init_session", argNames: []);
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
@@ -261,6 +428,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ModelInfo dco_decode_box_autoadd_model_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_model_info(raw);
+  }
+
+  @protected
   int dco_decode_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -288,9 +461,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ModelInfo dco_decode_model_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return ModelInfo(
+      paramCount: dco_decode_u_64(arr[0]),
+      modelSizeBytes: dco_decode_u_64(arr[1]),
+      numLayers: dco_decode_u_32(arr[2]),
+      hiddenSize: dco_decode_u_32(arr[3]),
+      vocabSize: dco_decode_u_32(arr[4]),
+      runner: dco_decode_String(arr[5]),
+      backend: dco_decode_String(arr[6]),
+    );
+  }
+
+  @protected
+  ModelInfo? dco_decode_opt_box_autoadd_model_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_model_info(raw);
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
   }
 
   @protected
@@ -347,6 +549,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ModelInfo sse_decode_box_autoadd_model_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_model_info(deserializer));
+  }
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
@@ -377,9 +585,49 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ModelInfo sse_decode_model_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_paramCount = sse_decode_u_64(deserializer);
+    var var_modelSizeBytes = sse_decode_u_64(deserializer);
+    var var_numLayers = sse_decode_u_32(deserializer);
+    var var_hiddenSize = sse_decode_u_32(deserializer);
+    var var_vocabSize = sse_decode_u_32(deserializer);
+    var var_runner = sse_decode_String(deserializer);
+    var var_backend = sse_decode_String(deserializer);
+    return ModelInfo(
+      paramCount: var_paramCount,
+      modelSizeBytes: var_modelSizeBytes,
+      numLayers: var_numLayers,
+      hiddenSize: var_hiddenSize,
+      vocabSize: var_vocabSize,
+      runner: var_runner,
+      backend: var_backend,
+    );
+  }
+
+  @protected
+  ModelInfo? sse_decode_opt_box_autoadd_model_info(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_model_info(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -447,6 +695,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_model_info(
+    ModelInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_model_info(self, serializer);
+  }
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
@@ -473,9 +730,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_model_info(ModelInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.paramCount, serializer);
+    sse_encode_u_64(self.modelSizeBytes, serializer);
+    sse_encode_u_32(self.numLayers, serializer);
+    sse_encode_u_32(self.hiddenSize, serializer);
+    sse_encode_u_32(self.vocabSize, serializer);
+    sse_encode_String(self.runner, serializer);
+    sse_encode_String(self.backend, serializer);
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_model_info(
+    ModelInfo? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_model_info(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected

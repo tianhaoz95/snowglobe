@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.20.1", features = ["std", "train", "wgpu", "fusion", "ndarray"] }
-burn-autodiff = { version = "0.20.1", features = ["std"] }
+burn = { version = "0.20.1", features = ["std", "wgpu", "fusion", "ndarray"] }
 burn-tensor = { version = "0.20.1", features = ["std"] }
 burn-wgpu = { version = "0.20.1", optional = true }
 bytemuck = "1.25.0"
