@@ -122,6 +122,7 @@ The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps
 
 **1. Prerequisites:**
 - Ensure you have a valid Google account with permissions to publish.
+- Boost the version in `pubspec.yaml` (e.g., `0.0.1-dev.1` to `0.0.1-dev.2`) and update `CHANGELOG.md` with the latest changes.
 - Ensure the Rust bridge is up to date:
   ```bash
   cd packages/snowglobe_openai
