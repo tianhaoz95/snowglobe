@@ -7,7 +7,7 @@ if [ "$1" == "pub" ]; then
   echo "Switching to snowglobe_openai from pub.dev..."
   cat <<OVERRIDE > pubspec_overrides.yaml
 dependency_overrides:
-  snowglobe_openai: ^0.0.1-dev.2
+  snowglobe_openai: ^0.0.1-dev.4
 OVERRIDE
   echo "Created pubspec_overrides.yaml"
 elif [ "$1" == "local" ]; then
