@@ -1,3 +1,8 @@
+# 0.0.1-dev.3
+
+- Fixed Rust engine dependency path in published package using public git repository.
+- Updated repository URL in pubspec.yaml.
+
 # 0.0.1-dev.2
 
 - Exposed `ModelInfo` and engine metrics.

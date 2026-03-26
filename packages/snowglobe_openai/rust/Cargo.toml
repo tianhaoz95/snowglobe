@@ -8,7 +8,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
-snowglobe = { version = "0.1.0", path = "../../../engine" }
+snowglobe = { git = "https://github.com/tianhaoz95/snowglobe", directory = "engine" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures-util = "0.3.32"

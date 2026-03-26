@@ -6215,6 +6215,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "snowglobe"
 version = "0.1.0"
+source = "git+https://github.com/tianhaoz95/snowglobe#5700a4859f7551f72aa1927cc602dc6abc5cbac1"
 dependencies = [
  "async-openai",
  "async-stream",
