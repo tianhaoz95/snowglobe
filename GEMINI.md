@@ -78,6 +78,28 @@ EXECUTORCH_USE_MPS=1 flutter test integration_test/chat_test.dart -d macos
 flutter test integration_test/chat_test.dart -d <device_id>
 ```
 
+### Dependency Management (Local vs. Remote)
+For testing purposes, you can switch the `demo` app's `snowglobe_openai` dependency between the local source code and the version published on `pub.dev`.
+
+**To test the published package (e.g., to verify prebuilt binaries):**
+```bash
+cd demo
+
+# 1. Switch to the version from pub.dev
+./scripts/toggle_snowglobe_openai.sh pub
+
+# 2. Run or build the app (Android users will not need NDK for prebuilt architectures)
+flutter build apk --release
+```
+
+**To switch back to local development:**
+```bash
+# Switch back to the local source code
+./scripts/toggle_snowglobe_openai.sh local
+```
+
+*Note: This uses a `pubspec_overrides.yaml` file (automatically added to `.gitignore`) to override the local path defined in `pubspec.yaml` without modifying the core configuration.*
+
 ### Optimized Integration Testing (Model Caching)
 To avoid downloading large model files (~500MB) every time the integration test is run, use the optimized test runner. This script caches the model assets in `.test_assets/` and pushes them to the device before running the test.
 
