@@ -1,3 +1,8 @@
+# 0.0.1-dev.4
+
+- Added prebuilt Android binaries (arm64-v8a, x86_64) to support zero-config build for Android.
+- Implemented hybrid build logic to fallback to source build if prebuilt binaries are missing.
+
 # 0.0.1-dev.3
 
 - Fixed Rust engine dependency path in published package using public git repository.

@@ -78,6 +78,28 @@ EXECUTORCH_USE_MPS=1 flutter test integration_test/chat_test.dart -d macos
 flutter test integration_test/chat_test.dart -d <device_id>
 ```
 
+### Dependency Management (Local vs. Remote)
+For testing purposes, you can switch the `demo` app's `snowglobe_openai` dependency between the local source code and the version published on `pub.dev`.
+
+**To test the published package (e.g., to verify prebuilt binaries):**
+```bash
+cd demo
+
+# 1. Switch to the version from pub.dev
+./scripts/toggle_snowglobe_openai.sh pub
+
+# 2. Run or build the app (Android users will not need NDK for prebuilt architectures)
+flutter build apk --release
+```
+
+**To switch back to local development:**
+```bash
+# Switch back to the local source code
+./scripts/toggle_snowglobe_openai.sh local
+```
+
+*Note: This uses a `pubspec_overrides.yaml` file (automatically added to `.gitignore`) to override the local path defined in `pubspec.yaml` without modifying the core configuration.*
+
 ### Optimized Integration Testing (Model Caching)
 To avoid downloading large model files (~500MB) every time the integration test is run, use the optimized test runner. This script caches the model assets in `.test_assets/` and pushes them to the device before running the test.
 
@@ -126,32 +148,44 @@ firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.ap
 
 ### Publishing `snowglobe_openai` to pub.dev
 
-The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps the Rust inference engine. The initial version `0.0.1-dev.1` has been published. To publish subsequent versions, follow these steps:
+The `snowglobe_openai` package is a self-contained Flutter FFI plugin that wraps the Rust inference engine. To ensure a "zero-config" experience for users (no NDK required), follow these steps to prebuild binaries before publishing.
 
-**1. Prerequisites:**
-- Ensure you have a valid Google account with permissions to publish.
-- Boost the version in `pubspec.yaml` (e.g., `0.0.1-dev.1` to `0.0.1-dev.2`) and update `CHANGELOG.md` with the latest changes.
-- Ensure the Rust bridge is up to date:
+**1. Prebuild Android Binaries:**
+Use the `demo` app's build system to generate the optimized Rust shared libraries.
+```bash
+cd demo
+export ANDROID_NDK_ROOT="/path/to/your/ndk/"
+
+# Build for both arm64 and x64
+flutter build apk --release --target-platform android-arm64,android-x64
+```
+
+**2. Package Binaries into the Plugin:**
+Copy the compiled `.so` files from the build artifacts into the package's `jniLibs` directory.
+```bash
+# Create directories
+mkdir -p ../packages/snowglobe_openai/android/src/main/jniLibs/arm64-v8a
+mkdir -p ../packages/snowglobe_openai/android/src/main/jniLibs/x86_64
+
+# Copy binaries
+cp build/snowglobe_openai/build/aarch64-linux-android/release/librust_lib_snowglobe_openai.so \
+   ../packages/snowglobe_openai/android/src/main/jniLibs/arm64-v8a/
+cp build/snowglobe_openai/build/x86_64-linux-android/release/librust_lib_snowglobe_openai.so \
+   ../packages/snowglobe_openai/android/src/main/jniLibs/x86_64/
+```
+
+**3. Validate & Publish:**
+- Boost the version in `packages/snowglobe_openai/pubspec.yaml`.
+- Update `CHANGELOG.md` to note the included prebuilt binaries.
+- Run the publication:
   ```bash
-  cd packages/snowglobe_openai
+  cd ../packages/snowglobe_openai
   flutter_rust_bridge_codegen generate
+  flutter pub publish --dry-run
+  flutter pub publish
   ```
 
-**2. Validate the package:**
-Always run a dry run to ensure the package configuration is valid and has no warnings:
-```bash
-cd packages/snowglobe_openai
-flutter pub publish --dry-run
-```
-
-**3. Publish:**
-Run the following command and follow the interactive authentication flow in your browser:
-```bash
-cd packages/snowglobe_openai
-flutter pub publish
-```
-
-*Note: The package has been restructured to merge the `rust_builder` plugin directly into the main package for better compatibility with pub.dev's dependency requirements.*
+*Note: The package uses hybrid logic. If prebuilt binaries are present in `jniLibs`, the user's build will skip the Rust compilation. If they are missing, it will automatically fall back to a source build (requiring Rust/NDK).*
 
 ### Targeting Different Backends
 

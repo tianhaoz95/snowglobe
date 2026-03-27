@@ -37,11 +37,19 @@ android {
     // declared in /android/app/build.gradle file of the Flutter project.
     // Replace it with a version number if this plugin requires a specfic NDK version.
     // (e.g. ndkVersion "23.1.7779620")
-    ndkVersion android.ndkVersion
+    if (android.hasProperty("ndkVersion")) {
+        ndkVersion android.ndkVersion
+    }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
     }
 
     defaultConfig {
@@ -49,8 +57,18 @@ android {
     }
 }
 
-apply from: "../cargokit/gradle/plugin.gradle"
-cargokit {
-    manifestDir = "../rust"
-    libname = "rust_lib_snowglobe_openai"
+def hasPrebuilt() {
+    return new File(projectDir, "src/main/jniLibs/arm64-v8a/librust_lib_snowglobe_openai.so").exists() ||
+           new File(projectDir, "src/main/jniLibs/armeabi-v7a/librust_lib_snowglobe_openai.so").exists()
+}
+
+if (hasPrebuilt()) {
+    logger.info("snowglobe_openai: Using prebuilt binaries found in jniLibs.")
+} else {
+    logger.info("snowglobe_openai: No prebuilt binaries found. Falling back to source build (requires NDK).")
+    apply from: "../cargokit/gradle/plugin.gradle"
+    cargokit {
+        manifestDir = "../rust"
+        libname = "rust_lib_snowglobe_openai"
+    }
 }

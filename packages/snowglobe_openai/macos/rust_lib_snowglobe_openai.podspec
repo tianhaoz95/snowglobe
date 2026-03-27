@@ -28,22 +28,30 @@ A new Flutter FFI plugin project.
     s.frameworks = 'SystemConfiguration', 'CoreServices', 'Security', 'Metal', 'MetalPerformanceShaders', 'MetalPerformanceShadersGraph'
     s.libraries = 'c++'
   
-    s.script_phase = {
-      :name => 'Build Rust library',
-      # First argument is relative path to the `rust` folder, second is name of rust library
-      :script => 'sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust rust_lib_snowglobe_openai',
-      :execution_position => :before_compile,
-      :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
-      # Let XCode know that the static library referenced in -force_load below is
-      # created by this build step.
-      :output_files => ["${BUILT_PRODUCTS_DIR}/librust_lib_snowglobe_openai.a"],
-    }
-    s.pod_target_xcconfig = {
-      'DEFINES_MODULE' => 'YES',
-      # Ensure we match the architecture of the prebuilt ExecuTorch libs
-      'ARCHS[sdk=macosx*]' => 'arm64',
-      'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-      'OTHER_LDFLAGS' => '-force_load ${BUILT_PRODUCTS_DIR}/librust_lib_snowglobe_openai.a',
-    }
+    # Check if prebuilt XCFramework exists
+    has_prebuilt = File.exist?(File.expand_path('rust_lib_snowglobe_openai.xcframework', __dir__))
+
+    if has_prebuilt
+      s.vendored_frameworks = 'rust_lib_snowglobe_openai.xcframework'
+      s.pod_target_xcconfig = {
+        'DEFINES_MODULE' => 'YES',
+        'ARCHS[sdk=macosx*]' => 'arm64',
+        'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386'
+      }
+    else
+      s.script_phase = {
+        :name => 'Build Rust library',
+        :script => 'sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust rust_lib_snowglobe_openai',
+        :execution_position => :before_compile,
+        :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
+        :output_files => ["${BUILT_PRODUCTS_DIR}/librust_lib_snowglobe_openai.a"],
+      }
+      s.pod_target_xcconfig = {
+        'DEFINES_MODULE' => 'YES',
+        'ARCHS[sdk=macosx*]' => 'arm64',
+        'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
+        'OTHER_LDFLAGS' => '-force_load ${BUILT_PRODUCTS_DIR}/librust_lib_snowglobe_openai.a',
+      }
+    end
   end
   
