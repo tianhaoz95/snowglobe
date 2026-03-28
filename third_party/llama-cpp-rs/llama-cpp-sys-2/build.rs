@@ -796,6 +796,13 @@ fn main() {
         }
     }
 
+    if cfg!(feature = "qnn") {
+        config.define("GGML_QNN", "ON");
+        if let Ok(qnn_sdk_root) = env::var("QNN_SDK_ROOT") {
+            config.define("QNN_SDK_ROOT", qnn_sdk_root);
+        }
+    }
+
     if cfg!(feature = "cuda") {
         config.define("GGML_CUDA", "ON");
 

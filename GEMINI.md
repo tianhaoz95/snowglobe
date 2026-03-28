@@ -121,7 +121,29 @@ The test provides detailed feedback during execution:
     - **Generation Speed**: The sustained inference speed in tokens per second (tok/s).
 - **Received tokens**: Shows the real-time stream of the model's response to the default prompt ("what is the capital of China?").
 
-## Deployment
+### Android Build Flavors
+The Android demo app supports three build flavors to manage binary size and hardware support:
+
+- **`standard`**: CPU-only inference. Smallest binary size.
+- **`highPerf`**: CPU + GPU (Vulkan/OpenCL) inference.
+- **`full`**: CPU + GPU + NPU (Qualcomm QNN) inference. Largest binary size.
+
+To build a specific flavor:
+```bash
+cd demo
+# Build Standard (CPU)
+flutter build apk --release --flavor standard --target-platform android-arm64
+
+# Build High Performance (GPU)
+flutter build apk --release --flavor highPerf --target-platform android-arm64
+
+# Build Full (GPU + NPU)
+export QNN_SDK_ROOT="/path/to/qnn/sdk"
+export HEXAGON_SDK_ROOT="/path/to/hexagon/sdk"
+flutter build apk --release --flavor full --target-platform android-arm64
+```
+
+### Deployment
 
 ### Firebase App Distribution (Android)
 To deploy the Android demo app to Firebase App Distribution, run the following commands from the `demo/` directory.

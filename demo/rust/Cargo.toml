@@ -21,3 +21,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 default = ["high_perf"]
 high_perf = ["snowglobe/high_perf"]
 qnn = ["snowglobe/qnn"]
+
+[patch.crates-io]
+llama-cpp-2 = { path = "../../third_party/llama-cpp-rs/llama-cpp-2" }
+llama-cpp-sys-2 = { path = "../../third_party/llama-cpp-rs/llama-cpp-sys-2" }

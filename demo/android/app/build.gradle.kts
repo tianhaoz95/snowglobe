@@ -40,6 +40,35 @@ android {
         }
     }
 
+    flavorDimensions.add("version")
+    productFlavors {
+        create("standard") {
+            dimension = "version"
+            // No extra features (CPU only)
+        }
+        create("highPerf") {
+            dimension = "version"
+            // Enable GPU (Vulkan/OpenCL)
+        }
+        create("full") {
+            dimension = "version"
+            // Enable GPU + NPU (QNN/Hexagon)
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        val flavor = variant.flavorName
+        val rustFeatures = when (flavor) {
+            "highPerf" -> "high_perf"
+            "full" -> "high_perf,qnn"
+            else -> "" // standard
+        }
+        
+        // Pass features to project extension so it can be picked up
+        project.extra.set("CARGOKIT_RUST_FEATURES_$name", rustFeatures)
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
