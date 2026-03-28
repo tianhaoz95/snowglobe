@@ -18,5 +18,6 @@ futures-util = "0.3.32"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [features]
-default = []
-# default = ["snowglobe/high_perf"]
+default = ["high_perf"]
+high_perf = ["snowglobe/high_perf"]
+qnn = ["snowglobe/qnn"]

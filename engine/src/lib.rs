@@ -384,7 +384,13 @@ pub type SessionState = EngineSession;
 
 pub static SESSIONS: RwLock<Option<DashMap<String, SessionState>>> = RwLock::new(None);
 
+#[cfg(feature = "high_perf")]
+pub static GPU_SETUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
 pub fn check_backend() -> String {
+    #[cfg(feature = "qnn")]
+    return "NPU (Hexagon)".to_string();
+
     #[cfg(feature = "high_perf")]
     {
         #[cfg(target_os = "android")]
@@ -396,7 +402,7 @@ pub fn check_backend() -> String {
     }
 
     #[cfg(not(feature = "high_perf"))]
-    return "CPU (NdArray)".to_string();
+    return "CPU".to_string();
 }
 
 pub fn get_model_info() -> Option<crate::model::ModelInfo> {

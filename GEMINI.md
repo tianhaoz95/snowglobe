@@ -191,14 +191,21 @@ cp build/snowglobe_openai/build/x86_64-linux-android/release/librust_lib_snowglo
 
 The Snowglobe engine supports multiple backends. You can target them using build-time features or runtime configuration.
 
-#### 1. Hardware Acceleration (GPU vs. CPU)
+#### 1. Hardware Acceleration (GPU vs. CPU vs. NPU)
 Hardware acceleration is controlled via Rust features in `demo/rust/Cargo.toml`.
-- **CPU (Default):** The `default` feature list is empty. Uses Burn's `NdArray` backend.
-- **GPU (WGPU/Vulkan/Metal):** Enable the `high_perf` feature by editing `demo/rust/Cargo.toml`:
+- **CPU (Default):** The `default` feature list is empty. Uses Burn's `NdArray` backend and `llama.cpp` CPU backend.
+- **GPU (Vulkan/OpenCL/Metal):** Enable the `high_perf` feature by editing `demo/rust/Cargo.toml`:
   ```toml
   [features]
-  default = ["snowglobe/high_perf"]
+  default = ["high_perf"]
   ```
+  *Note for Android (Adreno GPUs): You must have the Vulkan or OpenCL headers installed in your NDK to compile the GPU backend.*
+- **NPU (Hexagon):** Enable the `qnn` feature by editing `demo/rust/Cargo.toml`:
+  ```toml
+  [features]
+  default = ["qnn"]
+  ```
+  *Note for Android (Snapdragon NPUs): You must have the Qualcomm Hexagon SDK installed and the `HEXAGON_SDK_ROOT` environment variable configured before building.*
 
 #### 2. Inference Orchestration (llama.cpp, ExecuTorch, Burn)
 The orchestration layer is selected at runtime in the Flutter app based on `--dart-define` flags and model file availability.

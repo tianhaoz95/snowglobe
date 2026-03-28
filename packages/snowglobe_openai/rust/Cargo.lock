@@ -6215,13 +6215,13 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "snowglobe"
 version = "0.1.0"
-source = "git+https://github.com/tianhaoz95/snowglobe#5700a4859f7551f72aa1927cc602dc6abc5cbac1"
 dependencies = [
  "async-openai",
  "async-stream",
  "async-trait",
  "burn",
  "burn-tensor",
+ "burn-wgpu",
  "bytemuck",
  "cc",
  "cmake",
@@ -8496,3 +8496,11 @@ checksum = "0b7a1c0af6e5d8d1363f4994b7a091ccf963d8b694f7da5b0b9cceb82da2c0a6"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "llama-cpp-2"
+version = "0.1.141"
+
+[[patch.unused]]
+name = "llama-cpp-sys-2"
+version = "0.1.141"
