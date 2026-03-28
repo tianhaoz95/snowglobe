@@ -30,6 +30,13 @@ pub struct LlamaModel {
     pub(crate) model: NonNull<llama_cpp_sys_2::llama_model>,
 }
 
+impl LlamaModel {
+    /// Returns the underlying raw pointer to the `llama_model`.
+    pub fn as_ptr(&self) -> *mut llama_cpp_sys_2::llama_model {
+        self.model.as_ptr()
+    }
+}
+
 /// A safe wrapper around `llama_lora_adapter`.
 #[derive(Debug)]
 #[repr(transparent)]

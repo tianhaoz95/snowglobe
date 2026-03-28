@@ -356,6 +356,21 @@ impl<B: Backend> ModelRunner for Qwen<B> {
         let all_logits = self.forward_all(session)?;
         Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
     }
+
+    fn backend_name(&self) -> String {
+        #[cfg(feature = "high_perf")]
+        {
+            #[cfg(target_os = "android")]
+            return "Vulkan GPU".to_string();
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            return "Metal GPU".to_string();
+            #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+            return "WGPU GPU".to_string();
+        }
+
+        #[cfg(not(feature = "high_perf"))]
+        return "CPU".to_string();
+    }
 }
 
 // Configuration for a single Qwen block (transformer layer).

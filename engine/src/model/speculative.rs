@@ -15,6 +15,9 @@ impl ModelRunner for DummyDraftRunner {
     fn forward_all(&self, _session: &mut EngineSession) -> Result<Vec<Vec<f32>>, String> {
         Ok(vec![vec![0.0; 151936]])
     }
+    fn backend_name(&self) -> String {
+        "CPU".to_string()
+    }
 }
 
 
@@ -103,5 +106,9 @@ impl ModelRunner for SpeculativeRunner {
         session.last_accepted_count = accepted_count;
 
         Ok(vec![commit_logits.last().unwrap().clone()])
+    }
+
+    fn backend_name(&self) -> String {
+        format!("{} (Spec)", self.target.backend_name())
     }
 }

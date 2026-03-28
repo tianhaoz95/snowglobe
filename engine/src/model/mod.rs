@@ -49,6 +49,17 @@ pub enum EngineVariant {
     Speculative(Box<dyn runner::ModelRunner>),
 }
 
+impl EngineVariant {
+    pub fn backend_name(&self) -> String {
+        match self {
+            EngineVariant::Burn(m) => m.backend_name(),
+            EngineVariant::ExecuTorch(m) => m.backend_name(),
+            EngineVariant::LlamaCpp(m) => m.backend_name(),
+            EngineVariant::Speculative(m) => m.backend_name(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
     pub param_count: usize,
