@@ -25,9 +25,13 @@ from executorch.exir import EdgeCompileConfig, to_edge
 from torch.export import export
 from executorch.backends.apple.mps.partition.mps_partitioner import MPSPartitioner, CompileSpec as MPSCompileSpec
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
+from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import XNNPACKQuantizer, get_symmetric_quantization_config
+from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e, convert_pt2e
+
 qnn_import_error = None
 try:
     from executorch.backends.qualcomm.partition.qnn_partitioner import QnnPartitioner
+    from executorch.backends.qualcomm.quantizer.quantizer import QnnQuantizer, QuantDtype
     from executorch.backends.qualcomm.serialization.qc_schema import QcomChipset
     from executorch.backends.qualcomm.utils.utils import (
         generate_qnn_executorch_compiler_spec,
@@ -39,6 +43,44 @@ except ImportError as e:
     qnn_import_error = e
 
 from transformers import AutoTokenizer
+
+def quantize_model(model, example_inputs, backend):
+    print(f"--- Starting Quantization for {backend} ---")
+    
+    # 1. Capture the model
+    with torch.no_grad():
+        m = export(model, example_inputs).module()
+
+    # 2. Select Quantizer
+    if backend == "qualcomm":
+        if QnnQuantizer is None:
+            print("Qualcomm Quantizer not available, skipping quantization.")
+            return model
+        quantizer = QnnQuantizer()
+        # Configure for INT8 (8-bit activations, 8-bit weights)
+        quantizer.add_16bit_output_nodes([]) # Optional
+    else:
+        quantizer = XNNPACKQuantizer()
+        operator_config = get_symmetric_quantization_config(is_per_channel=True)
+        quantizer.set_global(operator_config)
+
+    # 3. Prepare
+    print("Preparing model for PT2E quantization...")
+    m = prepare_pt2e(m, quantizer)
+
+    # 4. Calibration
+    print("Calibrating with sample inputs...")
+    # Use a few dummy tokens for calibration
+    # In a real scenario, use actual prompt data
+    for _ in range(8):
+        m(*example_inputs)
+
+    # 5. Convert
+    print("Converting to quantized model...")
+    m = convert_pt2e(m)
+    
+    print("Quantization complete.")
+    return m
 
 class Qwen3RMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
@@ -218,6 +260,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", type=str, choices=["mps", "xnnpack", "qualcomm", "portable"], default="mps")
+    parser.add_argument("--quantize", action="store_true", help="Perform static PTQ (INT8) before export.")
     args = parser.parse_args()
 
     repo_id = "Qwen/Qwen3-0.6B"
@@ -231,7 +274,8 @@ def main():
 
     print("Initializing model...")
     # Use float16 for MPS and Qualcomm to avoid type mismatches and improve performance
-    model_dtype = torch.float16 if args.backend in ["mps", "qualcomm"] else torch.float32
+    # BUT use float32 if we are going to quantize, as observers work better on float32
+    model_dtype = torch.float32 if (args.quantize or args.backend not in ["mps", "qualcomm"]) else torch.float16
     model = Qwen3ForCausalLM(config).to(model_dtype)
     # Fix keys if necessary (Safetensors usually match but sometimes there's a prefix)
     model.load_state_dict(state_dict, strict=True)
@@ -240,6 +284,16 @@ def main():
     print(f"Running generation test ({model_dtype})...")
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     prompt = "What is the capital of China?"
+    # Use 128 for seq_len as per engine expectation
+    example_input = torch.randint(0, config["vocab_size"], (1, 128), dtype=torch.int32 if args.backend == "mps" else torch.int64)
+
+    # 0. Quantization (Optional)
+    if args.quantize:
+        if args.backend == "mps":
+            print("❌ Static PTQ is not supported for MPS backend. Skipping quantization.")
+        else:
+            model = quantize_model(model, (example_input,), args.backend)
+
     input_ids = tokenizer(prompt, return_tensors="pt").input_ids
     
     generated_ids = input_ids
@@ -247,6 +301,8 @@ def main():
     
     with torch.no_grad():
         for _ in range(max_new_tokens):
+            # QwenPte logic expects fixed 128 input usually, but here we just test sanity
+            # If we quantized, model might be a GraphModule now
             logits = model(generated_ids)
             next_token_logits = logits[:, -1, :]
             next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
@@ -262,14 +318,11 @@ def main():
     print("Test passed!")
 
     print(f"Exporting to PTE with backend: {args.backend}...")
-    # Example input
-    # Use 128 for seq_len as per engine expectation
-    example_input = torch.randint(0, config["vocab_size"], (1, 128), dtype=torch.int32 if args.backend == "mps" else torch.int64)
-    
+
     # 1. Export the model
+    # If we quantized, model is now a GraphModule. We need to export it to get an ExportedProgram.
     with torch.no_grad():
         exported_model = export(model, (example_input,))
-
     if args.backend == "mps":
         print("Partitioning for MPS...")
         # 2. Lower to Edge
