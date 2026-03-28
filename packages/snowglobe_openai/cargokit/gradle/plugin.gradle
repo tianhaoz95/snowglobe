@@ -80,6 +80,11 @@ abstract class CargoKitBuildTask extends DefaultTask {
             environment "CARGOKIT_MIN_SDK_VERSION", minSdkVersion
             environment "CARGOKIT_TARGET_PLATFORMS", targetPlatforms.join(",")
             environment "CARGOKIT_JAVA_HOME", System.properties['java.home']
+            if (project.hasProperty("CARGOKIT_RUST_FEATURES")) {
+                environment "CARGOKIT_RUST_FEATURES", project.getProperty("CARGOKIT_RUST_FEATURES")
+            } else if (System.getenv("CARGOKIT_RUST_FEATURES") != null) {
+                environment "CARGOKIT_RUST_FEATURES", System.getenv("CARGOKIT_RUST_FEATURES")
+            }
         }
     }
 }

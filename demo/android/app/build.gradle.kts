@@ -65,8 +65,10 @@ android {
             else -> "" // standard
         }
         
-        // Pass features to project extension so it can be picked up
-        project.extra.set("CARGOKIT_RUST_FEATURES_$name", rustFeatures)
+        // Pass features to all subprojects (including snowglobe_openai)
+        project.rootProject.allprojects.forEach {
+            it.extensions.extraProperties.set("CARGOKIT_RUST_FEATURES", rustFeatures)
+        }
     }
 
     buildTypes {

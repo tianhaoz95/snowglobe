@@ -54,26 +54,3 @@ cargokit {
     manifestDir = "../../rust"
     libname = "rust_lib_snowglobedemo"
 }
-
-// After cargokit plugin is applied, we can find and configure the tasks
-tasks.configureEach {
-    if (name.startsWith("cargokitCargoBuild")) {
-        // Try to find the features set in the app's build.gradle.kts
-        // The task name in the app is usually cargokitCargoBuild<Libname><Variant>
-        // We match it with the variant name
-        def variantMatch = name.replace("cargokitCargoBuild" + project.cargokit.libname.capitalize(), "").toLowerCase()
-        
-        // Find if any project extension starts with CARGOKIT_RUST_FEATURES and ends with our variant
-        project.rootProject.allprojects.each { p ->
-            if (p.extensions.extraProperties.has("CARGOKIT_RUST_FEATURES")) {
-                 environment("CARGOKIT_RUST_FEATURES", p.extensions.extraProperties.get("CARGOKIT_RUST_FEATURES"))
-            }
-            // More specific check for variant
-            p.extensions.extraProperties.getProperties().each { k, v ->
-                if (k.startsWith("CARGOKIT_RUST_FEATURES_") && k.toLowerCase().endsWith(variantMatch)) {
-                    environment("CARGOKIT_RUST_FEATURES", v)
-                }
-            }
-        }
-    }
-}
