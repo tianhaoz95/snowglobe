@@ -22,7 +22,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [features]
 default = ["high_perf"]
-high_perf = ["snowglobe/high_perf"]
+high_perf = ["snowglobe/high_perf", "snowglobe/vulkan"]
 qnn = ["snowglobe/qnn"]
 
 [patch.crates-io]

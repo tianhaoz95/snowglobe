@@ -24,12 +24,21 @@ pub enum BackendType {
     LlamaCpp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum HardwareTarget {
+    Auto,
+    Cpu,
+    Gpu,
+    Npu,
+}
+
 #[derive(Debug, Clone)]
 pub struct InitConfig {
     pub vocab_shards: usize,
     pub max_gen_len: usize,
     pub use_executorch: bool, // Deprecated, keep for backwards compat for now or replace entirely
     pub backend: BackendType,
+    pub hardware: HardwareTarget,
     pub speculate_tokens: usize, // 0 means disabled
 }
 

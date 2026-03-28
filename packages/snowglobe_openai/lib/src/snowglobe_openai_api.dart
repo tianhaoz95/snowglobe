@@ -3,7 +3,7 @@ import 'package:openai_dart/openai_dart.dart';
 import 'package:snowglobe_openai/src/rust/api.dart' as rust_api;
 import 'package:snowglobe_openai/src/rust/frb_generated.dart';
 
-export 'package:snowglobe_openai/src/rust/api.dart' show InitConfig, BackendType, ModelInfo;
+export 'package:snowglobe_openai/src/rust/api.dart' show InitConfig, BackendType, HardwareTarget, ModelInfo;
 
 class SnowglobeOpenAI {
   static Future<void> initRust() async {

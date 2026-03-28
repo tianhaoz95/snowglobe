@@ -37,6 +37,7 @@ class _MyAppState extends State<MyApp> {
 
   // Engine status
   ModelType _selectedModel = ModelType.qwen3_5;
+  HardwareTarget _selectedHardware = HardwareTarget.auto;
   String? _engineErrorMessage;
   bool _isEngineReady = false;
   bool _isRustLibInitialized = false;
@@ -111,6 +112,7 @@ class _MyAppState extends State<MyApp> {
           backend: USE_LLAMACPP
               ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+          hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
       );
@@ -284,6 +286,7 @@ class _MyAppState extends State<MyApp> {
           backend: USE_LLAMACPP
               ? BackendType.llamaCpp
               : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+          hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
       );
@@ -804,6 +807,57 @@ class _MyAppState extends State<MyApp> {
                                       if (value != null) {
                                         setState(() {
                                           _selectedModel = value;
+                                        });
+                                        _initEngine();
+                                      }
+                                    },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Hardware',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            DropdownButton<HardwareTarget>(
+                              value: _selectedHardware,
+                              underline: const SizedBox(),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: HardwareTarget.auto,
+                                  child: Text('Auto (Max Accel)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: HardwareTarget.cpu,
+                                  child: Text('CPU Only'),
+                                ),
+                                DropdownMenuItem(
+                                  value: HardwareTarget.gpu,
+                                  child: Text('GPU (Vulkan/Metal)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: HardwareTarget.npu,
+                                  child: Text('NPU (QNN/Hexagon)'),
+                                ),
+                              ],
+                              onChanged: _isLoading
+                                  ? null
+                                  : (value) {
+                                      if (value != null) {
+                                        setState(() {
+                                          _selectedHardware = value;
                                         });
                                         _initEngine();
                                       }

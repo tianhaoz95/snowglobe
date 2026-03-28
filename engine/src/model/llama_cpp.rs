@@ -20,12 +20,40 @@ unsafe impl Send for SafeLlamaContext {}
 unsafe impl Sync for SafeLlamaContext {}
 
 impl ModelRunner for LlamaCppRunner {
-    fn load(path: &Path, _config: &crate::InitConfig) -> Result<Box<Self>, String> {
+    fn load(path: &Path, config: &crate::InitConfig) -> Result<Box<Self>, String> {
         let backend = LLAMA_BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| format!("Failed to init backend: {}", e))
         })?;
         
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(99); 
+        let mut model_params = LlamaModelParams::default();
+
+        match config.hardware {
+            crate::model::HardwareTarget::Cpu => {
+                model_params = model_params.with_n_gpu_layers(0);
+            }
+            crate::model::HardwareTarget::Gpu => {
+                model_params = model_params.with_n_gpu_layers(99);
+                // Optionally explicitly select a GPU device if multiple exist
+            }
+            crate::model::HardwareTarget::Npu => {
+                model_params = model_params.with_n_gpu_layers(99);
+                // Look for NPU device
+                let dev_count = unsafe { llama_cpp_sys_2::ggml_backend_dev_count() };
+                for i in 0..dev_count {
+                    let dev = unsafe { llama_cpp_sys_2::ggml_backend_dev_get(i) };
+                    let name_ptr = unsafe { llama_cpp_sys_2::ggml_backend_dev_name(dev) };
+                    let name = unsafe { std::ffi::CStr::from_ptr(name_ptr) }.to_string_lossy();
+                    if name.to_lowercase().contains("qnn") || name.to_lowercase().contains("npu") {
+                        model_params = model_params.with_devices(&[i])
+                            .map_err(|e| format!("Failed to set NPU device: {:?}", e))?;
+                        break;
+                    }
+                }
+            }
+            crate::model::HardwareTarget::Auto => {
+                model_params = model_params.with_n_gpu_layers(99);
+            }
+        }
         
         let model = LlamaModel::load_from_file(backend, path, &model_params)
             .map_err(|e| format!("Failed to load model: {}", e))?;
