@@ -388,6 +388,22 @@ pub static SESSIONS: RwLock<Option<DashMap<String, SessionState>>> = RwLock::new
 pub static GPU_SETUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
 pub fn check_backend() -> String {
+    if let Some(m) = GLOBAL_MODEL.read().as_ref() {
+        match m.init_config.hardware {
+            crate::model::HardwareTarget::Cpu => return "CPU".to_string(),
+            crate::model::HardwareTarget::Gpu => {
+                #[cfg(target_os = "android")]
+                return "Vulkan GPU".to_string();
+                #[cfg(any(target_os = "ios", target_os = "macos"))]
+                return "Metal GPU".to_string();
+                #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+                return "WGPU GPU".to_string();
+            }
+            crate::model::HardwareTarget::Npu => return "NPU (Hexagon)".to_string(),
+            crate::model::HardwareTarget::Auto => {} // Fall through to default logic
+        }
+    }
+
     #[cfg(feature = "qnn")]
     return "NPU (Hexagon)".to_string();
 
