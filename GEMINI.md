@@ -121,7 +121,39 @@ The test provides detailed feedback during execution:
     - **Generation Speed**: The sustained inference speed in tokens per second (tok/s).
 - **Received tokens**: Shows the real-time stream of the model's response to the default prompt ("what is the capital of China?").
 
-## Deployment
+### Android Build Flavors
+The Android demo app supports three build flavors to manage binary size and hardware support:
+
+- **`standard`**: CPU-only inference. Smallest binary size.
+- **`highPerf`**: CPU + GPU (Vulkan/OpenCL) inference.
+- **`full`**: CPU + GPU + NPU (Qualcomm QNN) inference. Largest binary size.
+
+To build a specific flavor:
+```bash
+cd demo
+# Build Standard (CPU)
+flutter build apk --release --flavor standard --target-platform android-arm64
+
+# Build High Performance (GPU)
+flutter build apk --release --flavor highPerf --target-platform android-arm64
+
+# Build Full (GPU + NPU)
+export QNN_SDK_ROOT="/path/to/qnn/sdk"
+export HEXAGON_SDK_ROOT="/path/to/hexagon/sdk"
+flutter build apk --release --flavor full --target-platform android-arm64
+```
+
+### Dynamic Device Selector
+The demo app includes a runtime hardware selector in the **Generation Settings** (at the bottom of the chat screen).
+
+- **Auto (Max Accel)**: Prioritizes NPU, then GPU, then CPU.
+- **CPU Only**: Forces all inference to the CPU.
+- **GPU (Vulkan/Metal)**: Explicitly targets the device GPU.
+- **NPU (QNN/Hexagon)**: Explicitly targets the Snapdragon NPU.
+
+Switching the hardware target will trigger an engine re-initialization with the selected backend.
+
+### Deployment
 
 ### Firebase App Distribution (Android)
 To deploy the Android demo app to Firebase App Distribution, run the following commands from the `demo/` directory.
@@ -191,14 +223,21 @@ cp build/snowglobe_openai/build/x86_64-linux-android/release/librust_lib_snowglo
 
 The Snowglobe engine supports multiple backends. You can target them using build-time features or runtime configuration.
 
-#### 1. Hardware Acceleration (GPU vs. CPU)
+#### 1. Hardware Acceleration (GPU vs. CPU vs. NPU)
 Hardware acceleration is controlled via Rust features in `demo/rust/Cargo.toml`.
-- **CPU (Default):** The `default` feature list is empty. Uses Burn's `NdArray` backend.
-- **GPU (WGPU/Vulkan/Metal):** Enable the `high_perf` feature by editing `demo/rust/Cargo.toml`:
+- **CPU (Default):** The `default` feature list is empty. Uses Burn's `NdArray` backend and `llama.cpp` CPU backend.
+- **GPU (Vulkan/OpenCL/Metal):** Enable the `high_perf` feature by editing `demo/rust/Cargo.toml`:
   ```toml
   [features]
-  default = ["snowglobe/high_perf"]
+  default = ["high_perf"]
   ```
+  *Note for Android (Adreno GPUs): You must have the Vulkan or OpenCL headers installed in your NDK to compile the GPU backend.*
+- **NPU (Hexagon):** Enable the `qnn` feature by editing `demo/rust/Cargo.toml`:
+  ```toml
+  [features]
+  default = ["qnn"]
+  ```
+  *Note for Android (Snapdragon NPUs): You must have the Qualcomm Hexagon SDK installed and the `HEXAGON_SDK_ROOT` environment variable configured before building.*
 
 #### 2. Inference Orchestration (llama.cpp, ExecuTorch, Burn)
 The orchestration layer is selected at runtime in the Flutter app based on `--dart-define` flags and model file availability.

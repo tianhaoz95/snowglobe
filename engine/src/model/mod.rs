@@ -24,12 +24,21 @@ pub enum BackendType {
     LlamaCpp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum HardwareTarget {
+    Auto,
+    Cpu,
+    Gpu,
+    Npu,
+}
+
 #[derive(Debug, Clone)]
 pub struct InitConfig {
     pub vocab_shards: usize,
     pub max_gen_len: usize,
     pub use_executorch: bool, // Deprecated, keep for backwards compat for now or replace entirely
     pub backend: BackendType,
+    pub hardware: HardwareTarget,
     pub speculate_tokens: usize, // 0 means disabled
 }
 
@@ -38,6 +47,17 @@ pub enum EngineVariant {
     ExecuTorch(Box<dyn runner::ModelRunner>),
     LlamaCpp(Box<dyn runner::ModelRunner>),
     Speculative(Box<dyn runner::ModelRunner>),
+}
+
+impl EngineVariant {
+    pub fn backend_name(&self) -> String {
+        match self {
+            EngineVariant::Burn(m) => m.backend_name(),
+            EngineVariant::ExecuTorch(m) => m.backend_name(),
+            EngineVariant::LlamaCpp(m) => m.backend_name(),
+            EngineVariant::Speculative(m) => m.backend_name(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

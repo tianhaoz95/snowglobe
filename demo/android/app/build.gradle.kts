@@ -40,6 +40,37 @@ android {
         }
     }
 
+    flavorDimensions.add("version")
+    productFlavors {
+        create("standard") {
+            dimension = "version"
+            // No extra features (CPU only)
+        }
+        create("highPerf") {
+            dimension = "version"
+            // Enable GPU (Vulkan/OpenCL)
+        }
+        create("full") {
+            dimension = "version"
+            // Enable GPU + NPU (QNN/Hexagon)
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        val flavor = variant.flavorName
+        val rustFeatures = when (flavor) {
+            "highPerf" -> "high_perf"
+            "full" -> "high_perf,qnn"
+            else -> "" // standard
+        }
+        
+        // Pass features to all subprojects (including snowglobe_openai)
+        project.rootProject.allprojects.forEach {
+            it.extensions.extraProperties.set("CARGOKIT_RUST_FEATURES", rustFeatures)
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

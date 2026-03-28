@@ -422,6 +422,20 @@ impl SseDecode for bool {
     }
 }
 
+impl SseDecode for crate::api::HardwareTarget {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::HardwareTarget::Auto,
+            1 => crate::api::HardwareTarget::Cpu,
+            2 => crate::api::HardwareTarget::Gpu,
+            3 => crate::api::HardwareTarget::Npu,
+            _ => unreachable!("Invalid variant for HardwareTarget: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -436,12 +450,14 @@ impl SseDecode for crate::api::InitConfig {
         let mut var_maxGenLen = <u32>::sse_decode(deserializer);
         let mut var_useExecutorch = <bool>::sse_decode(deserializer);
         let mut var_backend = <crate::api::BackendType>::sse_decode(deserializer);
+        let mut var_hardware = <crate::api::HardwareTarget>::sse_decode(deserializer);
         let mut var_speculateTokens = <u32>::sse_decode(deserializer);
         return crate::api::InitConfig {
             vocab_shards: var_vocabShards,
             max_gen_len: var_maxGenLen,
             use_executorch: var_useExecutorch,
             backend: var_backend,
+            hardware: var_hardware,
             speculate_tokens: var_speculateTokens,
         };
     }
@@ -572,6 +588,24 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BackendType> for crate::api::
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::HardwareTarget {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Auto => 0.into_dart(),
+            Self::Cpu => 1.into_dart(),
+            Self::Gpu => 2.into_dart(),
+            Self::Npu => 3.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::HardwareTarget {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::HardwareTarget> for crate::api::HardwareTarget {
+    fn into_into_dart(self) -> crate::api::HardwareTarget {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::InitConfig {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -579,6 +613,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::InitConfig {
             self.max_gen_len.into_into_dart().into_dart(),
             self.use_executorch.into_into_dart().into_dart(),
             self.backend.into_into_dart().into_dart(),
+            self.hardware.into_into_dart().into_dart(),
             self.speculate_tokens.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -657,6 +692,24 @@ impl SseEncode for bool {
     }
 }
 
+impl SseEncode for crate::api::HardwareTarget {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::HardwareTarget::Auto => 0,
+                crate::api::HardwareTarget::Cpu => 1,
+                crate::api::HardwareTarget::Gpu => 2,
+                crate::api::HardwareTarget::Npu => 3,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -671,6 +724,7 @@ impl SseEncode for crate::api::InitConfig {
         <u32>::sse_encode(self.max_gen_len, serializer);
         <bool>::sse_encode(self.use_executorch, serializer);
         <crate::api::BackendType>::sse_encode(self.backend, serializer);
+        <crate::api::HardwareTarget>::sse_encode(self.hardware, serializer);
         <u32>::sse_encode(self.speculate_tokens, serializer);
     }
 }

@@ -35,6 +35,10 @@ if [ -z "$ANDROID_NDK_ROOT" ]; then
     fi
 fi
 
+if [ -n "$ANDROID_NDK_ROOT" ]; then
+    export PATH="$ANDROID_NDK_ROOT/shader-tools/linux-x86_64:$PATH"
+fi
+
 echo "Ensuring model assets for $MODEL_NAME are synced and pushed..."
 "$SCRIPTS_DIR/sync_test_assets.sh" --model "$MODEL_NAME" --push --device "$DEVICE_ID"
 

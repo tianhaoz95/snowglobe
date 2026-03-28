@@ -21,7 +21,8 @@ uuid = { version = "1.8.0", features = ["v4"] }
 tokio = { version = "1", features = ["fs", "macros"] }
 futures-util = "0.3"
 memmap2 = "0.9.9"
-llama-cpp-2 = "0.1"
+llama-cpp-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-2", version = "0.1" }
+llama-cpp-sys-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-sys-2", version = "0.1" }
 async-openai = { version = "0.34.0", features = ["chat-completion"] }
 tool-parser = "1.1.2"
 tokio-stream = "0.1"
@@ -32,6 +33,13 @@ async-trait = "0.1"
 [features]
 default = []
 high_perf = ["burn/wgpu", "burn-wgpu"]
+vulkan = ["llama-cpp-2/vulkan"]
+qnn = ["llama-cpp-2/qnn"]
+
+
+[patch.crates-io]
+llama-cpp-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-2" }
+llama-cpp-sys-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-sys-2" }
 
 [build-dependencies]
 cmake = "0.1.57"

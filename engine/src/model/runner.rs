@@ -58,4 +58,7 @@ pub trait ModelRunner: Send {
     fn cleanup_speculative_verification(&self, _session: &mut EngineSession) -> Result<(), String> {
         Ok(())
     }
+
+    /// Returns the name of the actual hardware backend being used.
+    fn backend_name(&self) -> String;
 }

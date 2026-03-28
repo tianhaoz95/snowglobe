@@ -1,0 +1,9 @@
+cargo:
+  release:
+    extra_flags:
+      - "--features"
+      - "${CARGOKIT_RUST_FEATURES:-}"
+  debug:
+    extra_flags:
+      - "--features"
+      - "${CARGOKIT_RUST_FEATURES:-}"

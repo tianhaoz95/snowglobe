@@ -241,5 +241,14 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
         let all_logits = self.forward_all(session)?;
         Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
     }
+
+    fn backend_name(&self) -> String {
+        let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
+        if use_mps {
+            "ExecuTorch (MPS)".to_string()
+        } else {
+            "ExecuTorch (CPU)".to_string()
+        }
+    }
 }
 

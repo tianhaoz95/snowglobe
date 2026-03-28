@@ -4,7 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:snowglobedemo/main.dart';
-import 'package:snowglobedemo/src/rust/api/simple.dart';
+import 'package:snowglobe_openai/snowglobe_openai.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +32,7 @@ void main() {
     expect(engineReady, true, reason: 'Engine did not become ready within 120 seconds');
 
     // 2. Log Detailed Backend Info
-    final backendString = await checkBackend();
+    final backendString = await SnowglobeOpenAI.checkBackend();
     print('------------------------------------------------------------');
     print('CHAT TEST - RUNTIME INFO');
     print('------------------------------------------------------------');

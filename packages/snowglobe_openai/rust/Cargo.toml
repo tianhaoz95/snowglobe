@@ -8,7 +8,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
-snowglobe = { git = "https://github.com/tianhaoz95/snowglobe", directory = "engine" }
+snowglobe = { path = "../../../engine" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures-util = "0.3.32"
@@ -21,5 +21,10 @@ tokio-stream = "0.1.18"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [features]
-default = []
-# default = ["snowglobe/high_perf"]
+default = ["high_perf"]
+high_perf = ["snowglobe/high_perf", "snowglobe/vulkan"]
+qnn = ["snowglobe/qnn"]
+
+[patch.crates-io]
+llama-cpp-2 = { path = "../../../third_party/llama-cpp-rs/llama-cpp-2" }
+llama-cpp-sys-2 = { path = "../../../third_party/llama-cpp-rs/llama-cpp-sys-2" }
