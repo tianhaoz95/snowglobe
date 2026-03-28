@@ -22,6 +22,7 @@ tokio = { version = "1", features = ["fs", "macros"] }
 futures-util = "0.3"
 memmap2 = "0.9.9"
 llama-cpp-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-2", version = "0.1" }
+llama-cpp-sys-2 = { path = "../third_party/llama-cpp-rs/llama-cpp-sys-2", version = "0.1" }
 async-openai = { version = "0.34.0", features = ["chat-completion"] }
 tool-parser = "1.1.2"
 tokio-stream = "0.1"

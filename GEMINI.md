@@ -143,6 +143,16 @@ export HEXAGON_SDK_ROOT="/path/to/hexagon/sdk"
 flutter build apk --release --flavor full --target-platform android-arm64
 ```
 
+### Dynamic Device Selector
+The demo app includes a runtime hardware selector in the **Generation Settings** (at the bottom of the chat screen).
+
+- **Auto (Max Accel)**: Prioritizes NPU, then GPU, then CPU.
+- **CPU Only**: Forces all inference to the CPU.
+- **GPU (Vulkan/Metal)**: Explicitly targets the device GPU.
+- **NPU (QNN/Hexagon)**: Explicitly targets the Snapdragon NPU.
+
+Switching the hardware target will trigger an engine re-initialization with the selected backend.
+
 ### Deployment
 
 ### Firebase App Distribution (Android)

@@ -759,10 +759,14 @@ fn main() {
     if cfg!(feature = "vulkan") {
         let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         if target_arch == "aarch64" || target_arch == "x86_64" {
+            // Disabled OpenCL because headers are missing in this environment
+            config.define("GGML_OPENCL", "OFF");
+            /*
             config.define("GGML_OPENCL", "ON");
             config.cxxflag("-Wno-narrowing");
             config.define("GGML_OPENCL_USE_ADRENO_KERNELS", "ON");
             config.define("OpenCL_LIBRARY", "/tmp/opencl_lib/libOpenCL.so");
+            */
         } else {
             config.define("GGML_OPENCL", "OFF");
         }
@@ -832,7 +836,7 @@ fn main() {
     config
         .profile(&profile)
         .very_verbose(std::env::var("CMAKE_VERBOSE").is_ok()) // Not verbose by default
-        .always_configure(false);
+        .always_configure(true);
 
     let build_dir = config.build();
 

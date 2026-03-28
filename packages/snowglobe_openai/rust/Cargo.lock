@@ -6226,6 +6226,7 @@ dependencies = [
  "futures-util",
  "half",
  "llama-cpp-2",
+ "llama-cpp-sys-2",
  "memmap2",
  "once_cell",
  "parking_lot",
