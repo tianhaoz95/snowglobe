@@ -11,6 +11,10 @@
 #include <iostream>
 #include <chrono>
 
+#include <android/log.h>
+#define LOG_TAG "SNOWGLOBE_PTE"
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
 using namespace executorch::extension;
 using namespace executorch::extension::module;
 using namespace executorch::runtime;
@@ -24,8 +28,7 @@ extern "C" {
 
 ExecuTorchModule* executorch_module_load(const char* pte_path) {
     auto start = std::chrono::steady_clock::now();
-    fprintf(stderr, "[CPP] Loading module from: %s\n", pte_path);
-    fflush(stderr);
+    ALOGE("[CPP] Loading module from: %s", pte_path);
 
     runtime_init();
 
@@ -37,19 +40,32 @@ ExecuTorchModule* executorch_module_load(const char* pte_path) {
 
     auto status = module->load();
     if (status != Error::Ok) {
-        fprintf(stderr, "[CPP] Failed to load module: %d\n", (int)status);
-        fflush(stderr);
+        ALOGE("[CPP] Failed to load module: %d", (int)status);
         return nullptr;
     }
 
     auto end = std::chrono::steady_clock::now();
-    fprintf(stderr, "[CPP] Module loaded in %.2f ms\n", 
+    ALOGE("[CPP] Module loaded in %.2f ms", 
             std::chrono::duration<double, std::milli>(end - start).count());
-    fflush(stderr);
 
     auto* m = new ExecuTorchModule();
     m->module = std::move(module);
     return m;
+}
+
+const char* executorch_module_get_name(ExecuTorchModule* module) {
+    if (!module || !module->module) {
+        return nullptr;
+    }
+    auto program = module->module->program();
+    if (!program) {
+        return "forward";
+    }
+    auto name_result = program->get_method_name(0);
+    if (!name_result.ok()) {
+        return "forward";
+    }
+    return *name_result;
 }
 
 void executorch_module_destroy(ExecuTorchModule* module) {

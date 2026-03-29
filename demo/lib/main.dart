@@ -6,16 +6,17 @@ import 'package:file_picker/file_picker.dart';
 import 'package:snowglobe_openai/snowglobe_openai.dart';
 import 'dart:io';
 
-enum ModelType { qwen2_5, qwen3, qwen3_5 }
+enum ModelType { qwen2_5, qwen3, qwen3_5, qwen2_5_pte }
 
-const bool USE_EXECUTORCH = bool.fromEnvironment(
-  'USE_EXECUTORCH',
-  defaultValue: false,
-);
-const bool USE_LLAMACPP = bool.fromEnvironment(
-  'USE_LLAMACPP',
-  defaultValue: true,
-);
+enum InferenceBackend { burn, executorch, llamaCpp }
+
+class AvailableModel {
+  final String name;
+  final String path;
+  final ModelType? type; // Can be null if auto-detected
+
+  AvailableModel({required this.name, required this.path, this.type});
+}
 
 void main() {
   runApp(const MyApp());
@@ -25,10 +26,10 @@ class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
   @override
-  _MyAppState createState() => _MyAppState();
+  MyAppState createState() => MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class MyAppState extends State<MyApp> {
   late final TextEditingController _promptController;
   String _response = 'Type a prompt below to see the magic happen.';
   bool _isLoading = false;
@@ -36,7 +37,10 @@ class _MyAppState extends State<MyApp> {
   Future<void>? _initEngineFuture;
 
   // Engine status
-  ModelType _selectedModel = ModelType.qwen3_5;
+  InferenceBackend _selectedBackend = InferenceBackend.llamaCpp;
+  List<AvailableModel> availableModels = [];
+  AvailableModel? _selectedModel;
+  
   HardwareTarget _selectedHardware = HardwareTarget.auto;
   String? _engineErrorMessage;
   bool _isEngineReady = false;
@@ -61,16 +65,78 @@ class _MyAppState extends State<MyApp> {
     _promptController = TextEditingController(
       text: 'what is the capital of China?',
     );
-    _initEngineFuture = _initEngine();
+    // Initialize Rust library first, then refresh models and init engine
+    _initEngine();
+  }
+
+  Future<void> _refreshAvailableModels() async {
+    final appSupportDir = await getApplicationSupportDirectory();
+    final modelsBaseDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}');
+    
+    if (!await modelsBaseDir.exists()) {
+      await modelsBaseDir.create(recursive: true);
+    }
+
+    final List<AvailableModel> detected = [];
+    final entities = await modelsBaseDir.list().toList();
+    
+    for (var entity in entities) {
+      if (entity is Directory) {
+        final name = entity.path.split(Platform.pathSeparator).last;
+        // Check if it contains required files for the backend
+        bool isValid = false;
+        if (_selectedBackend == InferenceBackend.burn) {
+          isValid = await File('${entity.path}/model.safetensors').exists();
+        } else if (_selectedBackend == InferenceBackend.executorch) {
+          isValid = await File('${entity.path}/model.pte').exists();
+        } else if (_selectedBackend == InferenceBackend.llamaCpp) {
+          isValid = await File('${entity.path}/model.gguf').exists();
+        }
+
+        if (isValid) {
+          ModelType? type;
+          if (name.toLowerCase().contains('qwen3_5')) {
+            type = ModelType.qwen3_5;
+          } else if (name.toLowerCase().contains('qwen3')) {
+            type = ModelType.qwen3;
+          } else if (name.toLowerCase().contains('qwen2_5')) {
+            type = ModelType.qwen2_5;
+          }
+          detected.add(AvailableModel(name: name, path: entity.path, type: type));
+        }
+      }
+    }
+
+    // Also check legacy path for backward compatibility if nothing found
+    if (detected.isEmpty) {
+       // Legacy fallback logic could go here, but for now we enforce the new structure
+    }
+
+    setState(() {
+      availableModels = detected;
+      if (availableModels.isNotEmpty) {
+        // Try to keep same model name if switching backend, or just take first
+        final previousName = _selectedModel?.name;
+        _selectedModel = availableModels.firstWhere(
+          (m) => m.name == previousName, 
+          orElse: () => availableModels.first
+        );
+      } else {
+        _selectedModel = null;
+      }
+    });
   }
 
   Future<void> _initEngine() async {
     if (!mounted) return;
+    
+    await _refreshAvailableModels();
+
     setState(() {
       _isLoading = true;
       _engineErrorMessage = null;
       _isEngineReady = false;
-      _modelInfo = null; // Reset model info when switching
+      _modelInfo = null;
     });
 
     try {
@@ -84,34 +150,42 @@ class _MyAppState extends State<MyApp> {
       final backend = await SnowglobeOpenAI.checkBackend();
       print('Backend check: $backend');
 
-      final appSupportDir = await getApplicationSupportDirectory();
-      final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
-      if (!await cacheDir.exists()) {
-        await cacheDir.create(recursive: true);
+      if (_selectedModel == null) {
+        // Try to download default if none available
+        final appSupportDir = await getApplicationSupportDirectory();
+        final defaultName = _selectedBackend == InferenceBackend.llamaCpp ? 'qwen3_5' : 'qwen3';
+        final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$defaultName');
+        if (!await cacheDir.exists()) {
+          await cacheDir.create(recursive: true);
+        }
+        
+        print('Downloading default model to ${cacheDir.path}');
+        final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
+        if (!downloadSuccess) {
+          throw Exception('Model files not found and download failed.');
+        }
+        await _refreshAvailableModels();
       }
 
-      print('Model-specific Cache Directory: ${cacheDir.path}');
-
-      final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
-      if (!downloadSuccess) {
-        if (mounted) {
-          setState(() {
-            _engineErrorMessage =
-                'Model files not found. Please upload a model file or download it.';
-          });
-        }
+      if (_selectedModel == null) {
+        setState(() {
+          _engineErrorMessage = 'No models available for ${_selectedBackend.name}';
+          _isLoading = false;
+        });
         return;
       }
 
+      print('Initializing engine with model at: ${_selectedModel!.path}');
+
       final initResult = await SnowglobeOpenAI.initEngine(
-        cacheDir: cacheDir.path,
+        cacheDir: _selectedModel!.path,
         config: InitConfig(
           vocabShards: 8,
           maxGenLen: _maxGenLen,
-          useExecutorch: USE_EXECUTORCH,
-          backend: USE_LLAMACPP
+          useExecutorch: _selectedBackend == InferenceBackend.executorch,
+          backend: _selectedBackend == InferenceBackend.llamaCpp
               ? BackendType.llamaCpp
-              : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+              : (_selectedBackend == InferenceBackend.executorch ? BackendType.execuTorch : BackendType.burn),
           hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
@@ -138,33 +212,10 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       print('Initialization error: $e');
-      final errorStr = e.toString();
       if (mounted) {
         setState(() {
           _engineErrorMessage = 'Failed to initialize engine: $e';
         });
-      }
-
-      // Auto-cleanup corrupted files if detected
-      try {
-        final appSupportDir = await getApplicationSupportDirectory();
-        final cacheDir = '${appSupportDir.path}/${_selectedModel.name}';
-        if (errorStr.contains('tokenizer.json')) {
-          final f = File('$cacheDir/tokenizer.json');
-          if (await f.exists()) await f.delete();
-        } else if (errorStr.contains('config.json')) {
-          final f = File('$cacheDir/config.json');
-          if (await f.exists()) await f.delete();
-        } else if (errorStr.contains('model.safetensors')) {
-          final f = File('$cacheDir/model.safetensors');
-          if (await f.exists()) await f.delete();
-        } else if (errorStr.contains('GGUF model file missing') ||
-            errorStr.contains('LlamaCpp model')) {
-          final f = File('$cacheDir/model.gguf');
-          if (await f.exists()) await f.delete();
-        }
-      } catch (cleanupError) {
-        print('Error during auto-cleanup: $cleanupError');
       }
     } finally {
       if (mounted) {
@@ -175,9 +226,19 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  void onBackendChanged(InferenceBackend? value) {
+    if (value != null && value != _selectedBackend) {
+      setState(() {
+        _selectedBackend = value;
+      });
+      _initEngine();
+    }
+  }
+
   Future<void> _deleteModelAssets() async {
-    final appSupportDir = await getApplicationSupportDirectory();
-    final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
+    if (_selectedModel == null) return;
+    
+    final cacheDir = Directory(_selectedModel!.path);
     
     final files = [
       File('${cacheDir.path}/model.safetensors'),
@@ -249,12 +310,16 @@ class _MyAppState extends State<MyApp> {
 
     try {
       final appSupportDir = await getApplicationSupportDirectory();
-      final cacheDir = Directory('${appSupportDir.path}/${_selectedModel.name}');
+      // Default to picking name from the file itself or use a generic 'manual'
+      final pickedFile = File(result.files.single.path!);
+      final fileName = pickedFile.path.split(Platform.pathSeparator).last;
+      final modelFolderName = fileName.split('.').first;
+      
+      final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$modelFolderName');
       if (!await cacheDir.exists()) {
         await cacheDir.create(recursive: true);
       }
 
-      final pickedFile = File(result.files.single.path!);
       final extension = pickedFile.path.split('.').last.toLowerCase();
 
       String targetName;
@@ -265,9 +330,9 @@ class _MyAppState extends State<MyApp> {
       } else if (extension == 'safetensors') {
         targetName = 'model.safetensors';
       } else {
-        targetName = USE_LLAMACPP
+        targetName = _selectedBackend == InferenceBackend.llamaCpp
             ? 'model.gguf'
-            : (USE_EXECUTORCH ? 'model.pte' : 'model.safetensors');
+            : (_selectedBackend == InferenceBackend.executorch ? 'model.pte' : 'model.safetensors');
       }
 
       final targetPath = '${cacheDir.path}/$targetName';
@@ -277,15 +342,17 @@ class _MyAppState extends State<MyApp> {
         _response = 'Model installed. Re-initializing engine...';
       });
 
+      await _refreshAvailableModels();
+      
       await SnowglobeOpenAI.initEngine(
         cacheDir: cacheDir.path,
         config: InitConfig(
           vocabShards: 8,
           maxGenLen: _maxGenLen,
-          useExecutorch: USE_EXECUTORCH,
-          backend: USE_LLAMACPP
+          useExecutorch: _selectedBackend == InferenceBackend.executorch,
+          backend: _selectedBackend == InferenceBackend.llamaCpp
               ? BackendType.llamaCpp
-              : (USE_EXECUTORCH ? BackendType.execuTorch : BackendType.burn),
+              : (_selectedBackend == InferenceBackend.executorch ? BackendType.execuTorch : BackendType.burn),
           hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
@@ -311,59 +378,43 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<bool> _downloadModelAndTokenizer(String cacheDir) async {
-    const qwen2_5ModelUrl =
-        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors';
-    const qwen2_5TokenizerUrl =
-        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json';
-    const qwen2_5ConfigUrl =
-        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json';
-
-    const qwen3ModelUrl =
-        'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/model.safetensors';
-    const qwen3TokenizerUrl =
-        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json';
-    const qwen3ConfigUrl =
-        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json';
-
-    const qwen3_5ModelUrl =
-        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/model.safetensors';
-    const qwen3_5TokenizerUrl =
-        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json';
-    const qwen3_5ConfigUrl =
-        'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json';
-
-    String modelUrl;
-    String tokenizerUrl;
-    String configUrl;
-
-    switch (_selectedModel) {
-      case ModelType.qwen2_5:
-        modelUrl = qwen2_5ModelUrl;
-        tokenizerUrl = qwen2_5TokenizerUrl;
-        configUrl = qwen2_5ConfigUrl;
-        break;
-      case ModelType.qwen3:
-        modelUrl = qwen3ModelUrl;
-        tokenizerUrl = qwen3TokenizerUrl;
-        configUrl = qwen3ConfigUrl;
-        break;
-      case ModelType.qwen3_5:
-        modelUrl = qwen3_5ModelUrl;
-        tokenizerUrl = qwen3_5TokenizerUrl;
-        configUrl = qwen3_5ConfigUrl;
-        break;
+    const qwen2_5BaseUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main';
+    const qwen3BaseUrl = 'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main';
+    const qwen3_5BaseUrl = 'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main';
+    
+    final modelFolderName = cacheDir.split(Platform.pathSeparator).last.toLowerCase();
+    String baseUrl = qwen3BaseUrl;
+    if (modelFolderName.contains('qwen3_5')) {
+      baseUrl = qwen3_5BaseUrl;
+    } else if (modelFolderName.contains('qwen2_5')) {
+      baseUrl = qwen2_5BaseUrl;
     }
 
-    final modelPath = USE_LLAMACPP
+    String modelUrl = '$baseUrl/model.safetensors';
+    String tokenizerUrl = '$baseUrl/tokenizer.json';
+    String configUrl = '$baseUrl/config.json';
+
+    if (_selectedBackend == InferenceBackend.llamaCpp) {
+      if (modelFolderName.contains('qwen3_5')) {
+        modelUrl = 'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf';
+      } else {
+        modelUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
+      }
+    } else if (_selectedBackend == InferenceBackend.executorch) {
+      // PTE models are usually pushed manually or via side-load, but we provide URLs if available
+      modelUrl = ""; 
+    }
+
+    final modelPath = _selectedBackend == InferenceBackend.llamaCpp
         ? '$cacheDir/model.gguf'
-        : (USE_EXECUTORCH
+        : (_selectedBackend == InferenceBackend.executorch
             ? '$cacheDir/model.pte'
             : '$cacheDir/model.safetensors');
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
 
-    final localBase = '../.test_assets/${_selectedModel.name}';
-    final androidBase = '/data/local/tmp/snowglobe/${_selectedModel.name}';
+    final localBase = '../.test_assets/$modelFolderName';
+    final androidBase = '/data/local/tmp/snowglobe/$modelFolderName';
 
     Future<bool> trySideLoad(String fileName, String targetPath) async {
       final localFile = File('$localBase/$fileName');
@@ -395,62 +446,11 @@ class _MyAppState extends State<MyApp> {
         }
       }
       if (!await File(modelPath).exists()) {
-        if (USE_LLAMACPP) {
-          String ggufUrl;
-          if (_selectedModel == ModelType.qwen3_5) {
-            ggufUrl =
-                'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf';
-          } else {
-            ggufUrl =
-                'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
-          }
-
-          if (!await trySideLoad('model.gguf', modelPath)) {
-            // Fallback to legacy path for backward compatibility
-            final legacyLocalGguf = File('../model.gguf');
-            final legacyAndroidGguf = File('/data/local/tmp/snowglobe/model.gguf');
-
-            if (await legacyLocalGguf.exists()) {
-              setState(() => _response = 'Copying legacy local model.gguf...');
-              await legacyLocalGguf.copy(modelPath);
-            } else if (Platform.isAndroid && await legacyAndroidGguf.exists()) {
-              setState(
-                () => _response = 'Copying legacy model.gguf from /data/local/tmp...',
-              );
-              await legacyAndroidGguf.copy(modelPath);
-            } else {
-              await _downloadFile(ggufUrl, modelPath, 'Model weights (GGUF)');
-            }
-          }
-        } else if (USE_EXECUTORCH) {
-          if (!await trySideLoad('model.pte', modelPath)) {
-            // Fallback to legacy path
-            final localPte = File('../qwen3_0.6b.pte');
-            final androidPte = File('/data/local/tmp/snowglobe/model.pte');
-            final androidExternalPte = File(
-              '/sdcard/Android/data/com.hejitech.snowglobedemo/cache/model.pte',
-            );
-
-            if (await localPte.exists()) {
-              setState(() => _response = 'Copying legacy local model.pte...');
-              await localPte.copy(modelPath);
-            } else if (Platform.isAndroid && await androidPte.exists()) {
-              setState(
-                () => _response = 'Copying legacy model.pte from /data/local/tmp...',
-              );
-              await androidPte.copy(modelPath);
-            } else if (Platform.isAndroid && await androidExternalPte.exists()) {
-              setState(
-                () => _response = 'Copying model.pte from external storage...',
-              );
-              await androidExternalPte.copy(modelPath);
-            } else {
-              return false;
-            }
-          }
-        } else {
-          if (!await trySideLoad('model.safetensors', modelPath)) {
+        if (!await trySideLoad(modelPath.split(Platform.pathSeparator).last, modelPath)) {
+          if (modelUrl.isNotEmpty) {
             await _downloadFile(modelUrl, modelPath, 'Model weights');
+          } else {
+            return false;
           }
         }
       }
@@ -719,13 +719,12 @@ class _MyAppState extends State<MyApp> {
                 const SizedBox(height: 16),
 
                 // Generation Settings
-                if (_isEngineReady)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_modelInfo != null) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_isEngineReady && _modelInfo != null) ...[
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
@@ -772,6 +771,37 @@ class _MyAppState extends State<MyApp> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
+                              'Backend',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            DropdownButton<InferenceBackend>(
+                              key: const Key('backend_dropdown'),
+                              value: _selectedBackend,
+                              underline: const SizedBox(),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              items: InferenceBackend.values.map((b) {
+                                return DropdownMenuItem(
+                                  value: b,
+                                  child: Text(b.name[0].toUpperCase() + b.name.substring(1)),
+                                );
+                              }).toList(),
+                              onChanged: _isLoading ? null : onBackendChanged,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
                               'Model',
                               style: TextStyle(
                                 fontSize: 13,
@@ -779,7 +809,8 @@ class _MyAppState extends State<MyApp> {
                                 color: colorScheme.primary,
                               ),
                             ),
-                            DropdownButton<ModelType>(
+                            DropdownButton<AvailableModel>(
+                              key: const Key('model_dropdown'),
                               value: _selectedModel,
                               underline: const SizedBox(),
                               style: TextStyle(
@@ -787,21 +818,13 @@ class _MyAppState extends State<MyApp> {
                                 color: Colors.grey[800],
                                 fontWeight: FontWeight.w500,
                               ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: ModelType.qwen3_5,
-                                  child: Text('Qwen 3.5 0.8B'),
-                                ),
-                                DropdownMenuItem(
-                                  value: ModelType.qwen3,
-                                  child: Text('Qwen 3 0.6B'),
-                                ),
-                                DropdownMenuItem(
-                                  value: ModelType.qwen2_5,
-                                  child: Text('Qwen 2.5 0.5B'),
-                                ),
-                              ],
-                              onChanged: _isLoading
+                              items: availableModels.map((m) {
+                                return DropdownMenuItem(
+                                  value: m,
+                                  child: Text(m.name),
+                                );
+                              }).toList(),
+                              onChanged: (_isLoading || availableModels.isEmpty)
                                   ? null
                                   : (value) {
                                       if (value != null) {

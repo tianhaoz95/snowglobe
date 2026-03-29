@@ -43,8 +43,8 @@ void main() {
     
     // Log additional details if available
     if (modelInfo != null) {
-      print('Model Params: ${(modelInfo.paramCount / 1e6).toStringAsFixed(1)}M');
-      print('Model Size: ${(modelInfo.modelSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB');
+      print('Model Params: ${(modelInfo.paramCount.toDouble() / 1e6).toStringAsFixed(1)}M');
+      print('Model Size: ${(modelInfo.modelSizeBytes.toDouble() / (1024 * 1024)).toStringAsFixed(1)} MB');
     }
     
     print('------------------------------------------------------------');

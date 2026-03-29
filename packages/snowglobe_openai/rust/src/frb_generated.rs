@@ -478,6 +478,7 @@ impl SseDecode for Vec<u8> {
 impl SseDecode for crate::api::ModelInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
         let mut var_paramCount = <u64>::sse_decode(deserializer);
         let mut var_modelSizeBytes = <u64>::sse_decode(deserializer);
         let mut var_numLayers = <u32>::sse_decode(deserializer);
@@ -486,6 +487,7 @@ impl SseDecode for crate::api::ModelInfo {
         let mut var_runner = <String>::sse_decode(deserializer);
         let mut var_backend = <String>::sse_decode(deserializer);
         return crate::api::ModelInfo {
+            name: var_name,
             param_count: var_paramCount,
             model_size_bytes: var_modelSizeBytes,
             num_layers: var_numLayers,
@@ -629,6 +631,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::InitConfig> for crate::api::I
 impl flutter_rust_bridge::IntoDart for crate::api::ModelInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.name.into_into_dart().into_dart(),
             self.param_count.into_into_dart().into_dart(),
             self.model_size_bytes.into_into_dart().into_dart(),
             self.num_layers.into_into_dart().into_dart(),
@@ -742,6 +745,7 @@ impl SseEncode for Vec<u8> {
 impl SseEncode for crate::api::ModelInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
         <u64>::sse_encode(self.param_count, serializer);
         <u64>::sse_encode(self.model_size_bytes, serializer);
         <u32>::sse_encode(self.num_layers, serializer);

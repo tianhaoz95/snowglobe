@@ -1,6 +1,7 @@
 pub mod qwen;
 pub mod qwen_pte;
 pub mod runner;
+#[cfg(feature = "llamacpp")]
 pub mod llama_cpp;
 pub mod speculative;
 
@@ -45,6 +46,7 @@ pub struct InitConfig {
 pub enum EngineVariant {
     Burn(Box<dyn runner::ModelRunner>),
     ExecuTorch(Box<dyn runner::ModelRunner>),
+    #[cfg(feature = "llamacpp")]
     LlamaCpp(Box<dyn runner::ModelRunner>),
     Speculative(Box<dyn runner::ModelRunner>),
 }
@@ -54,14 +56,26 @@ impl EngineVariant {
         match self {
             EngineVariant::Burn(m) => m.backend_name(),
             EngineVariant::ExecuTorch(m) => m.backend_name(),
+            #[cfg(feature = "llamacpp")]
             EngineVariant::LlamaCpp(m) => m.backend_name(),
             EngineVariant::Speculative(m) => m.backend_name(),
+        }
+    }
+
+    pub fn model_name(&self) -> String {
+        match self {
+            EngineVariant::Burn(m) => m.model_name(),
+            EngineVariant::ExecuTorch(m) => m.model_name(),
+            #[cfg(feature = "llamacpp")]
+            EngineVariant::LlamaCpp(m) => m.model_name(),
+            EngineVariant::Speculative(m) => m.model_name(),
         }
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
+    pub name: String,
     pub param_count: usize,
     pub model_size_bytes: usize,
     pub num_layers: usize,

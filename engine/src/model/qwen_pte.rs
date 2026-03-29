@@ -51,6 +51,10 @@ impl<B: Backend> QwenPte<B> {
         })
     }
 
+    pub fn get_name(&self) -> String {
+        self.module.lock().get_name()
+    }
+
     pub fn generate(&self, prompt: &str, max_new_tokens: usize) -> Result<String, String> {
         let global_lock = GLOBAL_MODEL.read();
         let loaded_model = global_lock.as_ref().ok_or("Model not initialized")?;
@@ -249,6 +253,10 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
         } else {
             "ExecuTorch (CPU)".to_string()
         }
+    }
+
+    fn model_name(&self) -> String {
+        self.get_name()
     }
 }
 

@@ -6,6 +6,7 @@ struct ExecuTorchModuleOpaque(c_void);
 #[cfg(has_executorch)]
 unsafe extern "C" {
     fn executorch_module_load(pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque;
+    fn executorch_module_get_name(module: *mut ExecuTorchModuleOpaque) -> *const c_char;
     fn executorch_module_destroy(module: *mut ExecuTorchModuleOpaque);
     fn executorch_module_forward(
         module: *mut ExecuTorchModuleOpaque,
@@ -20,6 +21,11 @@ unsafe extern "C" {
 #[cfg(not(has_executorch))]
 unsafe extern "C" fn executorch_module_load(_pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque {
     std::ptr::null_mut()
+}
+
+#[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_get_name(_module: *mut ExecuTorchModuleOpaque) -> *const c_char {
+    std::ptr::null()
 }
 
 #[cfg(not(has_executorch))]
@@ -44,12 +50,23 @@ pub struct Module {
 
 impl Module {
     pub fn new(pte_path: &str) -> Result<Self, String> {
+        println!("RUST: Calling executorch_module_load for {}", pte_path);
         let c_path = CString::new(pte_path).map_err(|e| e.to_string())?;
         let ptr = unsafe { executorch_module_load(c_path.as_ptr()) };
         if ptr.is_null() {
+            println!("RUST: executorch_module_load returned NULL");
             return Err("Failed to load ExecuTorch module".to_string());
         }
+        println!("RUST: executorch_module_load SUCCESS");
         Ok(Self { ptr })
+    }
+
+    pub fn get_name(&self) -> String {
+        let name_ptr = unsafe { executorch_module_get_name(self.ptr) };
+        if name_ptr.is_null() {
+            return "forward".to_string();
+        }
+        unsafe { std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned() }
     }
 
     /// Run inference with the module.

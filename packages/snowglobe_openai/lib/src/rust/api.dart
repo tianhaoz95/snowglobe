@@ -84,6 +84,7 @@ class InitConfig {
 }
 
 class ModelInfo {
+  final String name;
   final BigInt paramCount;
   final BigInt modelSizeBytes;
   final int numLayers;
@@ -93,6 +94,7 @@ class ModelInfo {
   final String backend;
 
   const ModelInfo({
+    required this.name,
     required this.paramCount,
     required this.modelSizeBytes,
     required this.numLayers,
@@ -104,6 +106,7 @@ class ModelInfo {
 
   @override
   int get hashCode =>
+      name.hashCode ^
       paramCount.hashCode ^
       modelSizeBytes.hashCode ^
       numLayers.hashCode ^
@@ -117,6 +120,7 @@ class ModelInfo {
       identical(this, other) ||
       other is ModelInfo &&
           runtimeType == other.runtimeType &&
+          name == other.name &&
           paramCount == other.paramCount &&
           modelSizeBytes == other.modelSizeBytes &&
           numLayers == other.numLayers &&

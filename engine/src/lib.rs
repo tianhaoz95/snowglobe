@@ -418,6 +418,11 @@ pub fn get_model_info() -> Option<crate::model::ModelInfo> {
             EngineVariant::LlamaCpp(_) => "llama.cpp".to_string(),
             EngineVariant::Speculative(_) => "Speculative".to_string(),
         };
+        // If runner has a specific model name (e.g. from PTE metadata), use it
+        let model_name = m.model.lock().model_name();
+        if model_name != "unknown" && model_name != "forward" {
+            info.name = model_name;
+        }
         info.backend = check_backend();
         info
     })

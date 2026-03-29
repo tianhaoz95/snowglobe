@@ -471,16 +471,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ModelInfo dco_decode_model_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return ModelInfo(
-      paramCount: dco_decode_u_64(arr[0]),
-      modelSizeBytes: dco_decode_u_64(arr[1]),
-      numLayers: dco_decode_u_32(arr[2]),
-      hiddenSize: dco_decode_u_32(arr[3]),
-      vocabSize: dco_decode_u_32(arr[4]),
-      runner: dco_decode_String(arr[5]),
-      backend: dco_decode_String(arr[6]),
+      name: dco_decode_String(arr[0]),
+      paramCount: dco_decode_u_64(arr[1]),
+      modelSizeBytes: dco_decode_u_64(arr[2]),
+      numLayers: dco_decode_u_32(arr[3]),
+      hiddenSize: dco_decode_u_32(arr[4]),
+      vocabSize: dco_decode_u_32(arr[5]),
+      runner: dco_decode_String(arr[6]),
+      backend: dco_decode_String(arr[7]),
     );
   }
 
@@ -603,6 +604,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   ModelInfo sse_decode_model_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
     var var_paramCount = sse_decode_u_64(deserializer);
     var var_modelSizeBytes = sse_decode_u_64(deserializer);
     var var_numLayers = sse_decode_u_32(deserializer);
@@ -611,6 +613,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_runner = sse_decode_String(deserializer);
     var var_backend = sse_decode_String(deserializer);
     return ModelInfo(
+      name: var_name,
       paramCount: var_paramCount,
       modelSizeBytes: var_modelSizeBytes,
       numLayers: var_numLayers,
@@ -758,6 +761,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_model_info(ModelInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
     sse_encode_u_64(self.paramCount, serializer);
     sse_encode_u_64(self.modelSizeBytes, serializer);
     sse_encode_u_32(self.numLayers, serializer);

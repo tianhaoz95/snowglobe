@@ -96,6 +96,7 @@ pub fn init_app() {
 }
 
 pub struct ModelInfo {
+    pub name: String,
     pub param_count: u64,
     pub model_size_bytes: u64,
     pub num_layers: u32,
@@ -108,6 +109,7 @@ pub struct ModelInfo {
 impl From<snowglobe::model::ModelInfo> for ModelInfo {
     fn from(info: snowglobe::model::ModelInfo) -> Self {
         Self {
+            name: info.name,
             param_count: info.param_count as u64,
             model_size_bytes: info.model_size_bytes as u64,
             num_layers: info.num_layers as u32,
