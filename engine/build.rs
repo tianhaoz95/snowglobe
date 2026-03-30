@@ -172,7 +172,12 @@ fn main() {
             }
             // Kernels DO need whole-archive for static registration
             println!("cargo:rustc-link-lib=static:+whole-archive=portable_kernels");
-            println!("cargo:rustc-link-lib=static=portable_ops_lib");
+            println!("cargo:rustc-link-lib=static:+whole-archive=portable_ops_lib");
+            // Link quantized kernels if available
+            if portable_path.join("libquantized_kernels.a").exists() || search_base.join("libquantized_kernels.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=quantized_kernels");
+                println!("cargo:rustc-link-lib=static:+whole-archive=quantized_ops_lib");
+            }
         }
 
         let optimized_path = search_base.join("kernels/optimized");

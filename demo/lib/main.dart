@@ -153,7 +153,7 @@ class MyAppState extends State<MyApp> {
       if (_selectedModel == null) {
         // Try to download default if none available
         final appSupportDir = await getApplicationSupportDirectory();
-        final defaultName = _selectedBackend == InferenceBackend.llamaCpp ? 'qwen3_5' : 'qwen3';
+        final defaultName = _selectedBackend == InferenceBackend.llamaCpp ? 'qwen3_5' : 'qwen2_5_pte';
         final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$defaultName');
         if (!await cacheDir.exists()) {
           await cacheDir.create(recursive: true);

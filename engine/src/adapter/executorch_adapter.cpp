@@ -44,6 +44,12 @@ ExecuTorchModule* executorch_module_load(const char* pte_path) {
         return nullptr;
     }
 
+    // Log method names to understand what's in the model
+    auto num_methods_result = module->num_methods();
+    if (num_methods_result.ok()) {
+        ALOGE("[CPP] Model has %zu method(s)", *num_methods_result);
+    }
+
     auto end = std::chrono::steady_clock::now();
     ALOGE("[CPP] Module loaded in %.2f ms", 
             std::chrono::duration<double, std::milli>(end - start).count());
@@ -87,8 +93,7 @@ int32_t executorch_module_forward(
     }
 
     if (input_len != 128) {
-        fprintf(stderr, "[CPP] Error: Input length %zu is not 128. Fixed size models require exact input size.\n", input_len);
-        fflush(stderr);
+        ALOGE("[CPP] Error: Input length %zu is not 128. Fixed size models require exact input size.", input_len);
         return -8;
     }
 
@@ -105,36 +110,38 @@ int32_t executorch_module_forward(
     std::vector<EValue> inputs = {EValue(input_tensor)};
 
     // 2. Forward
+    ALOGE("[CPP] Starting forward pass (use_int32=%d, input_len=%zu)...", use_int32, input_len);
     auto forward_start = std::chrono::steady_clock::now();
     auto result = module->module->forward(inputs);
     if (!result.ok()) {
-        fprintf(stderr, "[CPP] Forward failed with error %d (0x%x)\n", (int)result.error(), (unsigned int)result.error());
-        fflush(stderr);
+        ALOGE("[CPP] Forward failed with error %d (0x%x)", (int)result.error(), (unsigned int)result.error());
+        // Try to get more details about the error
+        if (result.error() == Error::OperatorMissing) {
+            ALOGE("[CPP] OperatorMissing: A required operator is not registered in the runtime.");
+            ALOGE("[CPP] Ensure portable_kernels and xnnpack_backend are linked with whole-archive.");
+        }
         return -2;
     }
     auto forward_end = std::chrono::steady_clock::now();
+    ALOGE("[CPP] Forward done in %.2f ms", std::chrono::duration<double, std::milli>(forward_end - forward_start).count());
 
     // 3. Process Output
-    fprintf(stderr, "[CPP] Processing outputs...\n");
-    fflush(stderr);
+    ALOGE("[CPP] Processing outputs...");
     auto outputs = result.get();
     if (outputs.empty()) {
-        fprintf(stderr, "[CPP] Forward returned empty outputs\n");
-        fflush(stderr);
+        ALOGE("[CPP] Forward returned empty outputs");
         return -3;
     }
 
     EValue& output_evalue = outputs[0];
     if (!output_evalue.isTensor()) {
-        fprintf(stderr, "[CPP] Output 0 is not a tensor\n");
-        fflush(stderr);
+        ALOGE("[CPP] Output 0 is not a tensor");
         return -4;
     }
 
     Tensor output_tensor = output_evalue.toTensor();
     if (output_tensor.dim() != 3) {
-        fprintf(stderr, "[CPP] Output tensor has wrong dim: %zu (expected 3)\n", (size_t)output_tensor.dim());
-        fflush(stderr);
+        ALOGE("[CPP] Output tensor has wrong dim: %zu (expected 3)", (size_t)output_tensor.dim());
         return -5;
     }
     
@@ -143,8 +150,7 @@ int32_t executorch_module_forward(
     
     const float* data = output_tensor.const_data_ptr<float>();
     if (!data) {
-        fprintf(stderr, "[CPP] Failed to get output data pointer\n");
-        fflush(stderr);
+        ALOGE("[CPP] Failed to get output data pointer");
         return -6;
     }
 
@@ -152,19 +158,17 @@ int32_t executorch_module_forward(
     // Match the Rust allocation: 128 * 152064
     size_t max_allowed_elements = 128 * 152064;
     if (total_elements > max_allowed_elements) {
-        fprintf(stderr, "[CPP] Output size %zu exceeds buffer limit %zu!\n", total_elements, max_allowed_elements);
-        fflush(stderr);
+        ALOGE("[CPP] Output size %zu exceeds buffer limit %zu!", total_elements, max_allowed_elements);
         return -7; 
     }
 
     memcpy(output_logits, data, total_elements * sizeof(float));
 
     auto end_all = std::chrono::steady_clock::now();
-    fprintf(stderr, "[CPP] Forward total: %.2f ms (exec: %.2f ms), output shape: [%zd, %zd, %zd]\n", 
+    ALOGE("[CPP] Forward total: %.2f ms (exec: %.2f ms), output shape: [%zd, %zd, %zd]", 
             std::chrono::duration<double, std::milli>(end_all - start_all).count(),
             std::chrono::duration<double, std::milli>(forward_end - forward_start).count(),
             (ssize_t)output_tensor.size(0), (ssize_t)output_tensor.size(1), (ssize_t)output_tensor.size(2));
-    fflush(stderr);
 
     return 0; // Success
 }

@@ -162,13 +162,36 @@ pub async fn generate_response(
         ..Default::default()
     };
 
-    if let Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) = snowglobe::create_chat_completion(request).await {
-        while let Some(chunk_res) = stream.next().await {
-            if let Ok(chunk) = chunk_res {
-                if let Some(content) = &chunk.choices[0].delta.content {
-                    let _ = sink.add(content.clone());
+    let result = snowglobe::create_chat_completion(request).await;
+    match result {
+        Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) => {
+            while let Some(chunk_res) = stream.next().await {
+                if let Ok(chunk) = chunk_res {
+                    if let Some(content) = &chunk.choices[0].delta.content {
+                        let _ = sink.add(content.clone());
+                    }
                 }
             }
         }
+        Ok(snowglobe::ChatCompletionOutput::Single(_)) => {}
+        Err(e) => {
+            android_log(&format!("generate_response error: {}", e));
+        }
     }
+}
+
+#[cfg(target_os = "android")]
+fn android_log(msg: &str) {
+    use std::ffi::{CString, c_char};
+    let tag = CString::new("SNOWGLOBE_RS").unwrap_or_default();
+    let msg_c = CString::new(msg).unwrap_or_default();
+    unsafe extern "C" {
+        fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
+    }
+    unsafe { __android_log_write(4, tag.as_ptr(), msg_c.as_ptr()); }
+}
+
+#[cfg(not(target_os = "android"))]
+fn android_log(msg: &str) {
+    eprintln!("[SNOWGLOBE_RS] {}", msg);
 }
