@@ -137,6 +137,7 @@ class MyAppState extends State<MyApp> {
       _engineErrorMessage = null;
       _isEngineReady = false;
       _modelInfo = null;
+      _response = 'Initializing engine...';
     });
 
     try {

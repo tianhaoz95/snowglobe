@@ -56,10 +56,10 @@ void main() {
         model: ChatCompletionModel.modelId('snowglobe'),
         messages: [
           ChatCompletionMessage.user(
-            content: ChatCompletionUserMessageContent.string('what is the capital of China?'),
+            content: ChatCompletionUserMessageContent.string('The capital of China is'),
           ),
         ],
-        maxTokens: 32,
+        maxTokens: 5,
       ),
     );
 

@@ -39,6 +39,7 @@ build_abi() {
         -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
         -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
         -DEXECUTORCH_BUILD_XNNPACK=ON \
+        -DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON \
         -DEXECUTORCH_BUILD_PORTABLE_OPS=ON \
         -DEXECUTORCH_ENABLE_LOGGING=ON \
         -DEXECUTORCH_BUILD_QNN="$ENABLE_QNN" \
@@ -71,6 +72,10 @@ build_abi() {
     mkdir -p "$ABI_OUT/kernels/portable"
     cp kernels/portable/libportable_kernels.a "$ABI_OUT/kernels/portable/" || true
     cp kernels/portable/libportable_ops_lib.a "$ABI_OUT/kernels/portable/" || true
+    
+    mkdir -p "$ABI_OUT/kernels/optimized"
+    cp kernels/optimized/liboptimized_kernels.a "$ABI_OUT/kernels/optimized/" || true
+    cp kernels/optimized/liboptimized_ops_lib.a "$ABI_OUT/kernels/optimized/" || true
     
     # Copy generated headers (needed for the build script)
     # We only need to do this once, so we take it from the first ABI build

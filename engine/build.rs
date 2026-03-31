@@ -189,6 +189,9 @@ fn main() {
                 );
             }
             println!("cargo:rustc-link-lib=static:+whole-archive=optimized_kernels");
+            if optimized_path.join("liboptimized_ops_lib.a").exists() || search_base.join("liboptimized_ops_lib.a").exists() {
+                println!("cargo:rustc-link-lib=static:+whole-archive=optimized_ops_lib");
+            }
         }
 
         // Required Apple Frameworks
@@ -230,7 +233,6 @@ fn main() {
             .include(&et_root.join("backends/xnnpack/third-party/cpuinfo/include"))
             .define("C10_USING_CUSTOM_GENERATED_MACROS", None)
             .flag("-std=c++17")
-            .flag("-fno-aligned-allocation")
             .flag("-fno-exceptions");
 
         if target.contains("apple-darwin") {
