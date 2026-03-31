@@ -96,6 +96,7 @@ pub fn init_app() {
 }
 
 pub struct ModelInfo {
+    pub name: String,
     pub param_count: u64,
     pub model_size_bytes: u64,
     pub num_layers: u32,
@@ -108,6 +109,7 @@ pub struct ModelInfo {
 impl From<snowglobe::model::ModelInfo> for ModelInfo {
     fn from(info: snowglobe::model::ModelInfo) -> Self {
         Self {
+            name: info.name,
             param_count: info.param_count as u64,
             model_size_bytes: info.model_size_bytes as u64,
             num_layers: info.num_layers as u32,
@@ -160,13 +162,36 @@ pub async fn generate_response(
         ..Default::default()
     };
 
-    if let Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) = snowglobe::create_chat_completion(request).await {
-        while let Some(chunk_res) = stream.next().await {
-            if let Ok(chunk) = chunk_res {
-                if let Some(content) = &chunk.choices[0].delta.content {
-                    let _ = sink.add(content.clone());
+    let result = snowglobe::create_chat_completion(request).await;
+    match result {
+        Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) => {
+            while let Some(chunk_res) = stream.next().await {
+                if let Ok(chunk) = chunk_res {
+                    if let Some(content) = &chunk.choices[0].delta.content {
+                        let _ = sink.add(content.clone());
+                    }
                 }
             }
         }
+        Ok(snowglobe::ChatCompletionOutput::Single(_)) => {}
+        Err(e) => {
+            android_log(&format!("generate_response error: {}", e));
+        }
     }
+}
+
+#[cfg(target_os = "android")]
+fn android_log(msg: &str) {
+    use std::ffi::{CString, c_char};
+    let tag = CString::new("SNOWGLOBE_RS").unwrap_or_default();
+    let msg_c = CString::new(msg).unwrap_or_default();
+    unsafe extern "C" {
+        fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
+    }
+    unsafe { __android_log_write(4, tag.as_ptr(), msg_c.as_ptr()); }
+}
+
+#[cfg(not(target_os = "android"))]
+fn android_log(msg: &str) {
+    eprintln!("[SNOWGLOBE_RS] {}", msg);
 }

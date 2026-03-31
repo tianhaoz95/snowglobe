@@ -20,7 +20,9 @@ int32_t executorch_module_forward(
     size_t input_len,
     int32_t use_int32,
     float* output_logits,
-    size_t* output_vocab_size
+    size_t* output_vocab_size,
+    size_t start_pos,
+    size_t num_positions
 );
 
 #ifdef __cplusplus

@@ -139,6 +139,7 @@ impl QwenConfig {
         let bytes_per_param = 4;
 
         ModelInfo {
+            name: "unknown".to_string(),
             param_count: params,
             model_size_bytes: params * bytes_per_param,
             num_layers: self.num_hidden_layers,

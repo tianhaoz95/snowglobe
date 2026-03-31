@@ -14,3 +14,5 @@
 /tmp/
 .tmp_bin/
 /third_party/llama-cpp-rs/llama-cpp-sys-2/llama.cpp
+logcat*.txt
+/demo/android/build/reports/problems

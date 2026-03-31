@@ -566,7 +566,7 @@ fn main() {
 
         // I expect this env var to always be present
         let features = std::env::var("CARGO_CFG_TARGET_FEATURE")
-            .expect("Env var CARGO_CFG_TARGET_FEATURE not found.");
+            .unwrap_or_default();
         debug_log!("Compiling with target features: {}", features);
 
         // list of rust target_features here:
@@ -654,10 +654,16 @@ fn main() {
             .or_else(|_| env::var("NDK_ROOT"))
             .or_else(|_| env::var("ANDROID_NDK_ROOT"))
             .unwrap_or_else(|_| {
-                panic!(
-                    "Android NDK not found. Please set one of: ANDROID_NDK, NDK_ROOT, ANDROID_NDK_ROOT\n\
-                     Download from: https://developer.android.com/ndk/downloads"
-                );
+                let fallback = "/home/tianhaoz/Android/Sdk/ndk/28.2.13676358";
+                if std::path::Path::new(fallback).exists() {
+                    println!("cargo:warning=Android NDK env not set, using fallback: {}", fallback);
+                    fallback.to_string()
+                } else {
+                    panic!(
+                        "Android NDK not found. Please set one of: ANDROID_NDK, NDK_ROOT, ANDROID_NDK_ROOT\n\
+                         Download from: https://developer.android.com/ndk/downloads"
+                    );
+                }
             });
 
         // Validate NDK installation
@@ -916,7 +922,7 @@ fn main() {
 
             // Add each unique library directory to the search path
             for lib_dir in ggml_lib_dirs {
-                println!("cargo:rustc-link-search=native={}", lib_dir.display());
+                println!("cargo:rustc-link-search={}", lib_dir.display());
                 debug_log!("Added system GGML library path: {}", lib_dir.display());
             }
         }
@@ -928,7 +934,7 @@ fn main() {
 
         // Add CUDA library directories to the linker search path
         for lib_dir in find_cuda_helper::find_cuda_lib_dirs() {
-            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            println!("cargo:rustc-link-search={}", lib_dir.display());
         }
 
         // Platform-specific linking
@@ -989,7 +995,7 @@ fn main() {
             );
         }
 
-        println!("cargo:rustc-link-search=native={}", rocm_lib.display());
+        println!("cargo:rustc-link-search={}", rocm_lib.display());
 
         // Link ROCm libraries
         println!("cargo:rustc-link-lib=dylib=amdhip64");
@@ -1010,13 +1016,13 @@ fn main() {
     let common_lib_dir = out_dir.join("build").join("common");
     if common_lib_dir.is_dir() {
         println!(
-            "cargo:rustc-link-search=native={}",
+            "cargo:rustc-link-search={}",
             common_lib_dir.display()
         );
         let common_profile_dir = common_lib_dir.join(&profile);
         if common_profile_dir.is_dir() {
             println!(
-                "cargo:rustc-link-search=native={}",
+                "cargo:rustc-link-search={}",
                 common_profile_dir.display()
             );
         }

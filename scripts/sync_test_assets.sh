@@ -83,6 +83,21 @@ case $MODEL_NAME in
         download_if_missing "qwen3_5" "tokenizer.json" "$QWEN3_5_TOKENIZER_URL"
         download_if_missing "qwen3_5" "config.json" "$QWEN3_5_CONFIG_URL"
         ;;
+    qwen3)
+        # Use locally generated PTE if it exists, otherwise would need URL
+        mkdir -p "$ASSETS_DIR/qwen3"
+        download_if_missing "qwen3" "tokenizer.json" "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/tokenizer.json"
+        download_if_missing "qwen3" "config.json" "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/config.json"
+        ;;
+    qwen2_5_pte)
+        # Use locally generated PTE
+        mkdir -p "$ASSETS_DIR/qwen2_5_pte"
+        if [ -f "qwen_qwen2.5_0.5b_instruct_int8.pte" ]; then
+            cp "qwen_qwen2.5_0.5b_instruct_int8.pte" "$ASSETS_DIR/qwen2_5_pte/model.pte"
+        fi
+        download_if_missing "qwen2_5_pte" "tokenizer.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json"
+        download_if_missing "qwen2_5_pte" "config.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json"
+        ;;
     *)
         echo "Model $MODEL_NAME not yet configured in this script."
         exit 1

@@ -6,6 +6,7 @@ struct ExecuTorchModuleOpaque(c_void);
 #[cfg(has_executorch)]
 unsafe extern "C" {
     fn executorch_module_load(pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque;
+    fn executorch_module_get_name(module: *mut ExecuTorchModuleOpaque) -> *const c_char;
     fn executorch_module_destroy(module: *mut ExecuTorchModuleOpaque);
     fn executorch_module_forward(
         module: *mut ExecuTorchModuleOpaque,
@@ -14,12 +15,19 @@ unsafe extern "C" {
         use_int32: i32,
         output_logits: *mut f32,
         output_vocab_size: *mut usize,
+        start_pos: usize,
+        num_positions: usize,
     ) -> i32;
 }
 
 #[cfg(not(has_executorch))]
 unsafe extern "C" fn executorch_module_load(_pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque {
     std::ptr::null_mut()
+}
+
+#[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_get_name(_module: *mut ExecuTorchModuleOpaque) -> *const c_char {
+    std::ptr::null()
 }
 
 #[cfg(not(has_executorch))]
@@ -33,6 +41,8 @@ unsafe extern "C" fn executorch_module_forward(
     _use_int32: i32,
     _output_logits: *mut f32,
     _output_vocab_size: *mut usize,
+    _start_pos: usize,
+    _num_positions: usize,
 ) -> i32 {
     -1
 }
@@ -44,18 +54,30 @@ pub struct Module {
 
 impl Module {
     pub fn new(pte_path: &str) -> Result<Self, String> {
+        println!("RUST: Calling executorch_module_load for {}", pte_path);
         let c_path = CString::new(pte_path).map_err(|e| e.to_string())?;
         let ptr = unsafe { executorch_module_load(c_path.as_ptr()) };
         if ptr.is_null() {
+            println!("RUST: executorch_module_load returned NULL");
             return Err("Failed to load ExecuTorch module".to_string());
         }
+        println!("RUST: executorch_module_load SUCCESS");
         Ok(Self { ptr })
     }
 
-    /// Run inference with the module.
-    ///
-    /// Tokens must be either `&[i32]` or `&[i64]`, depending on the exported model's expected type.
+    pub fn get_name(&self) -> String {
+        let name_ptr = unsafe { executorch_module_get_name(self.ptr) };
+        if name_ptr.is_null() {
+            return "forward".to_string();
+        }
+        unsafe { std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned() }
+    }
+
     pub fn forward<T: 'static>(&mut self, tokens: &[T]) -> Result<(Vec<f32>, usize), String> {
+        self.forward_range(tokens, 0, 0)
+    }
+
+    pub fn forward_range<T: 'static>(&mut self, tokens: &[T], start_pos: usize, num_positions: usize) -> Result<(Vec<f32>, usize), String> {
         let use_int32 = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() {
             1
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i64>() {
@@ -75,6 +97,8 @@ impl Module {
                 use_int32,
                 output_logits.as_mut_ptr(),
                 &mut vocab_size,
+                start_pos,
+                num_positions,
             )
         };
 
@@ -82,8 +106,13 @@ impl Module {
             return Err(format!("Forward failed with status {}", status));
         }
 
-        // Truncate to actual size
-        output_logits.truncate(128 * vocab_size);
+        if vocab_size == 0 {
+            return Err("Vocab size returned as 0".to_string());
+        }
+
+        // Truncate to actual size requested
+        let actual_num_positions = if num_positions == 0 { 128 } else { num_positions };
+        output_logits.truncate(actual_num_positions * vocab_size);
         Ok((output_logits, vocab_size))
     }
 }

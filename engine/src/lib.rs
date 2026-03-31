@@ -7,6 +7,17 @@ pub mod rope;
 pub mod utils;
 pub mod weight;
 
+#[cfg(target_os = "android")]
+fn android_log(msg: &str) {
+    use std::ffi::{CString, c_char};
+    unsafe extern "C" { fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32; }
+    let tag = CString::new("SNOWGLOBE_RS").unwrap_or_default();
+    let msg_c = CString::new(msg).unwrap_or_default();
+    unsafe { __android_log_write(4, tag.as_ptr(), msg_c.as_ptr()); }
+}
+#[cfg(not(target_os = "android"))]
+fn android_log(msg: &str) { eprintln!("[SNOWGLOBE_RS] {}", msg); }
+
 pub use utils::downloader::{download_model, download_qwen2_5_0_5b_instruct, download_qwen3_0_6b, download_qwen3_5_0_8b, download_qwen_gguf};
 
 use crate::layer::large_vocab::CHUNK_SIZE;
@@ -119,42 +130,37 @@ pub async fn create_chat_completion(
         (loaded_model.model.clone(), loaded_model.tokenizer.clone(), loaded_model.init_config.clone())
     };
 
-    let im_start_id = match tokenizer_clone.token_to_id("<|im_start|>") {
-        Some(id) => id,
-        None => return Err("Error: Missing <|im_start|> in tokenizer".to_string()),
-    };
-    let im_end_id = match tokenizer_clone.token_to_id("<|im_end|>") {
-        Some(id) => id,
-        None => return Err("Error: Missing <|im_end|> in tokenizer".to_string()),
-    };
-    let newline_id = tokenizer_clone.token_to_id("\n").unwrap_or(198);
-
-    // Format prompt from messages
-    let mut token_ids = Vec::new();
-    for msg in &request.messages {
-        let (role, content) = match msg {
-            ChatCompletionRequestMessage::System(m) => ("system", extract_system_content(&m.content)),
-            ChatCompletionRequestMessage::User(m) => ("user", extract_user_content(&m.content)),
-            ChatCompletionRequestMessage::Assistant(m) => {
-                let content = m.content.as_ref().map(extract_assistant_content).unwrap_or_default();
-                ("assistant", content)
-            },
-            ChatCompletionRequestMessage::Tool(m) => ("tool", extract_tool_content(&m.content)),
-            _ => ("unknown", "".to_string()),
-        };
-
+    // Tokenization is CPU-intensive and blocks the tokio thread - run in spawn_blocking
+    let tokenizer_for_tokenize = tokenizer_clone.clone();
+    let messages = request.messages.clone();
+    let (token_ids, im_start_id, im_end_id, newline_id) = tokio::task::spawn_blocking(move || {
+        let im_start_id = tokenizer_for_tokenize.token_to_id("<|im_start|>").ok_or("Missing <|im_start|>")?;
+        let im_end_id = tokenizer_for_tokenize.token_to_id("<|im_end|>").ok_or("Missing <|im_end|>")?;
+        let newline_id = tokenizer_for_tokenize.token_to_id("\n").unwrap_or(198);
+        let mut token_ids = Vec::new();
+        for msg in &messages {
+            let (role, content) = match msg {
+                ChatCompletionRequestMessage::System(m) => ("system", extract_system_content(&m.content)),
+                ChatCompletionRequestMessage::User(m) => ("user", extract_user_content(&m.content)),
+                ChatCompletionRequestMessage::Assistant(m) => {
+                    let content = m.content.as_ref().map(extract_assistant_content).unwrap_or_default();
+                    ("assistant", content)
+                },
+                ChatCompletionRequestMessage::Tool(m) => ("tool", extract_tool_content(&m.content)),
+                _ => ("unknown", "".to_string()),
+            };
+            token_ids.push(im_start_id);
+            token_ids.extend(tokenizer_for_tokenize.encode(role, false).unwrap().get_ids());
+            token_ids.push(newline_id);
+            token_ids.extend(tokenizer_for_tokenize.encode(content.as_str(), false).unwrap().get_ids());
+            token_ids.push(im_end_id);
+            token_ids.push(newline_id);
+        }
         token_ids.push(im_start_id);
-        token_ids.extend(tokenizer_clone.encode(role, false).unwrap().get_ids());
+        token_ids.extend(tokenizer_for_tokenize.encode("assistant", false).unwrap().get_ids());
         token_ids.push(newline_id);
-        token_ids.extend(tokenizer_clone.encode(content.as_str(), false).unwrap().get_ids());
-        token_ids.push(im_end_id);
-        token_ids.push(newline_id);
-    }
-
-    // Prepare assistant turn
-    token_ids.push(im_start_id);
-    token_ids.extend(tokenizer_clone.encode("assistant", false).unwrap().get_ids());
-    token_ids.push(newline_id);
+        Ok::<_, String>((token_ids, im_start_id, im_end_id, newline_id))
+    }).await.map_err(|e| format!("spawn_blocking failed: {}", e))??;
 
     let session_state = EngineSession {
         tokens: token_ids,
@@ -176,7 +182,17 @@ pub async fn create_chat_completion(
         
         for _ in 0..generation_limit {
             let num_tokens_before = session_state.tokens.len();
-            let logits = forward_model(&model_arc, &mut session_state)?;
+
+            // Use spawn_blocking so the blocking forward pass doesn't starve the tokio runtime.
+            // Without this, the runtime thread is blocked and sink.add() can never be processed.
+            let model_arc_clone = model_arc.clone();
+            let mut session_moved = session_state;
+            let (logits_result, session_returned) = tokio::task::spawn_blocking(move || {
+                let logits = forward_model(&model_arc_clone, &mut session_moved);
+                (logits, session_moved)
+            }).await.map_err(|e| format!("spawn_blocking failed: {}", e))?;
+            session_state = session_returned;
+            let logits = logits_result.map_err(|e| e)?;
 
             let next_token_id = logits
                 .iter()
@@ -418,6 +434,11 @@ pub fn get_model_info() -> Option<crate::model::ModelInfo> {
             EngineVariant::LlamaCpp(_) => "llama.cpp".to_string(),
             EngineVariant::Speculative(_) => "Speculative".to_string(),
         };
+        // If runner has a specific model name (e.g. from PTE metadata), use it
+        let model_name = m.model.lock().model_name();
+        if model_name != "unknown" && model_name != "forward" {
+            info.name = model_name;
+        }
         info.backend = check_backend();
         info
     })

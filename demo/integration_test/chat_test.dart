@@ -33,25 +33,20 @@ void main() {
 
     // 2. Log Detailed Backend Info
     final backendString = await SnowglobeOpenAI.checkBackend();
+    final modelInfo = await SnowglobeOpenAI.getModelInfo();
+    
     print('------------------------------------------------------------');
     print('CHAT TEST - RUNTIME INFO');
     print('------------------------------------------------------------');
-    print('Main Backend (Burn/App): $backendString');
-    print('Framework Used: ${USE_LLAMACPP ? "LlamaCpp (.gguf)" : (USE_EXECUTORCH ? "ExecuTorch (.pte)" : "Burn (.safetensors)")}');
+    print('Hardware Backend (reported by runner): $backendString');
+    print('Runner Framework: ${modelInfo?.runner ?? "Unknown"}');
     
-    // Check for NPU/GPU backends in ExecuTorch if applicable
-    if (USE_EXECUTORCH) {
-      if (Platform.isMacOS || Platform.isIOS) {
-        final useMps = Platform.environment['EXECUTORCH_USE_MPS'] ?? 'not set';
-        print('ExecuTorch Backend Context (Apple): ${useMps == '1' ? 'GPU (MPS)' : 'CPU (XNNPACK)'} (env EXECUTORCH_USE_MPS=$useMps)');
-      } else if (Platform.isAndroid) {
-        print('ExecuTorch Backend Context (Android): Potential NPU (NNAPI) or CPU (XNNPACK)');
-      }
-    } else if (USE_LLAMACPP) {
-      print('LlamaCpp: Active (checking acceleration inside Rust core logs)');
-    } else {
-      print('ExecuTorch/LlamaCpp: Not active (using Burn backend directly)');
+    // Log additional details if available
+    if (modelInfo != null) {
+      print('Model Params: ${(modelInfo.paramCount.toDouble() / 1e6).toStringAsFixed(1)}M');
+      print('Model Size: ${(modelInfo.modelSizeBytes.toDouble() / (1024 * 1024)).toStringAsFixed(1)} MB');
     }
+    
     print('------------------------------------------------------------');
 
     // 3. Find the send button and tap it

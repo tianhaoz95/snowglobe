@@ -61,4 +61,9 @@ pub trait ModelRunner: Send {
 
     /// Returns the name of the actual hardware backend being used.
     fn backend_name(&self) -> String;
+
+    /// Returns the name of the model (e.g., from PTE metadata).
+    fn model_name(&self) -> String {
+        "unknown".to_string()
+    }
 }
