@@ -33,6 +33,7 @@ pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
             max_gen_len: config.max_gen_len as usize,
             use_executorch: config.use_executorch,
             backend: config.backend.into(),
+            hardware: snowglobe::model::HardwareTarget::Auto,
             speculate_tokens: config.speculate_tokens as usize,
         },
     )
