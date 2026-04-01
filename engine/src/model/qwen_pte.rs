@@ -15,6 +15,7 @@ pub struct QwenPteConfig {
 #[derive(Debug)]
 pub struct QwenPte<B: Backend> {
     module: Arc<Mutex<ExecModule>>,
+    logit_buffer: Mutex<Vec<f32>>,
     _phantom: PhantomData<B>,
 }
 
@@ -22,6 +23,7 @@ impl<B: Backend> Clone for QwenPte<B> {
     fn clone(&self) -> Self {
         Self {
             module: self.module.clone(),
+            logit_buffer: Mutex::new(Vec::new()),
             _phantom: PhantomData,
         }
     }
@@ -47,6 +49,7 @@ impl<B: Backend> QwenPte<B> {
         let module = ExecModule::new(pte_path)?;
         Ok(Self {
             module: Arc::new(Mutex::new(module)),
+            logit_buffer: Mutex::new(Vec::new()),
             _phantom: PhantomData,
         })
     }
@@ -183,69 +186,75 @@ impl<B: Backend> Model<B> for QwenPte<B> {
     }
 }
 
-use crate::model::runner::{EngineSession, ModelRunner};
+use crate::model::runner::{EngineSession, ModelRunner, ExecutionMode, LogitView, BackendInfo};
+use std::any::Any;
 
 impl<B: Backend> ModelRunner for QwenPte<B> {
-    fn load(path: &std::path::Path, _config: &crate::InitConfig) -> Result<Box<Self>, String> {
+    fn load(path: &std::path::Path, _config: &serde_json::Value) -> Result<Box<Self>, String> {
         Ok(Box::new(Self::new(path.to_str().ok_or("Invalid path")?)?))
     }
 
-    fn forward_all(&self, session: &mut EngineSession) -> Result<Vec<Vec<f32>>, String> {
-        let total_len = session.tokens.len();
-        let num_new = total_len - session.offset;
+    fn execute(
+        &self,
+        session: &mut EngineSession,
+        input_tokens: &[u32],
+        _mode: ExecutionMode,
+    ) -> Result<LogitView, String> {
+        let num_new = input_tokens.len();
         if num_new == 0 {
             return Err("No new tokens".to_string());
         }
 
-        let start = total_len.saturating_sub(128);
-        
         let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
         
-        let num_processed = total_len - start;
-        let effective_seq_len = num_processed.min(128);
-        let token_pos_start = effective_seq_len - num_new;
+        let token_pos_start = session.current_kv_len % 128; // Simple rolling window for PTE demo
 
         let mut module = self.module.lock();
         let (logits_vec, vocab_size) = if use_mps {
-            let mut input_tokens = vec![0i32; 128];
-            for (j, &token) in session.tokens[start..].iter().enumerate() {
-                if j < 128 { input_tokens[j] = token as i32; }
+            let mut input_tokens_buf = vec![0i32; 128];
+            for (j, &token) in input_tokens.iter().enumerate() {
+                if j < 128 { input_tokens_buf[j] = token as i32; }
             }
-            module.forward_range(&input_tokens, token_pos_start, num_new)
+            module.forward_range(&input_tokens_buf, token_pos_start, num_new)
         } else {
-            let mut input_tokens = vec![0i64; 128];
-            for (j, &token) in session.tokens[start..].iter().enumerate() {
-                if j < 128 { input_tokens[j] = token as i64; }
+            let mut input_tokens_buf = vec![0i64; 128];
+            for (j, &token) in input_tokens.iter().enumerate() {
+                if j < 128 { input_tokens_buf[j] = token as i64; }
             }
-            module.forward_range(&input_tokens, token_pos_start, num_new)
+            module.forward_range(&input_tokens_buf, token_pos_start, num_new)
         }.map_err(|e| format!("PTE forward failed: {}", e))?;
 
-        // Extract logits for all new tokens
-        let mut all_logits = Vec::with_capacity(num_new);
-        for i in 0..num_new {
-            let start_idx = i * vocab_size;
-            let end_idx = start_idx + vocab_size;
-            if logits_vec.len() >= end_idx {
-                all_logits.push(logits_vec[start_idx..end_idx].to_vec());
-            } else {
-                return Err("Logits vector too small".to_string());
-            }
+        session.current_kv_len += num_new;
+
+        Ok(LogitView {
+            data: logits_vec,
+            shape: (num_new, vocab_size),
+        })
+    }
+
+    fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String> {
+        session.current_kv_len = len;
+        Ok(())
+    }
+
+    fn fork_state(&self, _session: &EngineSession) -> Result<Box<dyn Any + Send + Sync>, String> {
+        Ok(Box::new(()))
+    }
+
+    fn get_backend_info(&self) -> BackendInfo {
+        BackendInfo {
+            name: self.backend_name(),
+            max_sequence_length: 128,
+            max_batch_size: 1,
         }
-
-        // QwenPte doesn't have KV cache in this implementation, so we just update offset
-        session.offset = total_len;
-
-        Ok(all_logits)
     }
 
-    fn forward(
-        &self,
-        session: &mut EngineSession,
-    ) -> Result<Vec<f32>, String> {
-        let all_logits = self.forward_all(session)?;
-        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
+    fn model_name(&self) -> String {
+        self.get_name()
     }
+}
 
+impl<B: Backend> QwenPte<B> {
     fn backend_name(&self) -> String {
         let use_mps = std::env::var("EXECUTORCH_USE_MPS").is_ok();
         if use_mps {
@@ -253,10 +262,6 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
         } else {
             "ExecuTorch (CPU)".to_string()
         }
-    }
-
-    fn model_name(&self) -> String {
-        self.get_name()
     }
 }
 

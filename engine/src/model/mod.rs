@@ -54,11 +54,11 @@ pub enum EngineVariant {
 impl EngineVariant {
     pub fn backend_name(&self) -> String {
         match self {
-            EngineVariant::Burn(m) => m.backend_name(),
-            EngineVariant::ExecuTorch(m) => m.backend_name(),
+            EngineVariant::Burn(m) => m.get_backend_info().name,
+            EngineVariant::ExecuTorch(m) => m.get_backend_info().name,
             #[cfg(feature = "llamacpp")]
-            EngineVariant::LlamaCpp(m) => m.backend_name(),
-            EngineVariant::Speculative(m) => m.backend_name(),
+            EngineVariant::LlamaCpp(m) => m.get_backend_info().name,
+            EngineVariant::Speculative(m) => m.get_backend_info().name,
         }
     }
 

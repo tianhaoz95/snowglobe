@@ -1,68 +1,78 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::path::Path;
 
+/// Unique identifier for a logical user request or agent stream.
+pub type RequestId = u64;
+
+/// Defines the hardware execution intent. 
+pub enum ExecutionMode {
+    /// Initial prompt processing. Backends prioritize high matrix-throughput.
+    Prefill,
+    /// Generating a single token. Backends prioritize low matrix-vector latency.
+    Decode,
+    /// Verifying N draft tokens. Backend must apply causal + lookahead masking
+    /// and should NOT finalize KV updates until verified.
+    Verify { draft_len: usize },
+}
+
+/// The state of a logical request. The ModelRunner modifies the data inside.
 pub struct EngineSession {
-    pub tokens: Vec<u32>,
-    pub offset: usize,
-    pub state: Option<Box<dyn Any + Send + Sync>>,
-    pub last_accepted_count: usize,
-    pub is_speculative: bool,
+    pub request_id: RequestId,
+    /// Total tokens currently processed and stored in the hardware KV cache.
+    pub current_kv_len: usize,
+    /// Backend-specific, opaque state pointer (e.g., llama_context*, Burn Tensors).
+    pub backend_state: Option<Box<dyn Any + Send + Sync>>,
+    pub metadata: HashMap<String, String>,
 }
 
 impl EngineSession {
-    pub fn new() -> Self {
+    pub fn new(request_id: RequestId) -> Self {
         Self {
-            tokens: Vec::new(),
-            offset: 0,
-            state: None,
-            last_accepted_count: 0,
-            is_speculative: false,
+            request_id,
+            current_kv_len: 0,
+            backend_state: None,
+            metadata: HashMap::new(),
         }
     }
 }
 
-impl Default for EngineSession {
-    fn default() -> Self {
-        Self::new()
-    }
+/// A non-owning view over returned logits to minimize allocations.
+pub struct LogitView {
+    pub data: Vec<f32>,
+    pub shape: (usize, usize), 
+}
+
+/// Hardware capabilities report.
+pub struct BackendInfo {
+    pub name: String,
+    pub max_sequence_length: usize,
+    pub max_batch_size: usize,
 }
 
 pub trait ModelRunner: Send {
-    /// Load the model from the specified directory/file.
-    fn load(path: &Path, config: &crate::InitConfig) -> Result<Box<Self>, String>
+    /// 1. Lifecycle: Initialization
+    fn load(path: &Path, config: &serde_json::Value) -> Result<Box<Self>, String>
     where
         Self: Sized;
 
-    /// Perform a forward pass, returning logits for all new tokens.
-    /// The last element in the outer Vec corresponds to the logits for the next token.
-    fn forward_all(&self, session: &mut EngineSession) -> Result<Vec<Vec<f32>>, String>;
+    /// 2. Core Execution
+    fn execute(
+        &self,
+        session: &mut EngineSession,
+        input_tokens: &[u32],
+        mode: ExecutionMode,
+    ) -> Result<LogitView, String>;
 
-    /// Perform a forward pass, returning logits for the last token.
-    fn forward(&self, session: &mut EngineSession) -> Result<Vec<f32>, String> {
-        let all_logits = self.forward_all(session)?;
-        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
-    }
+    /// 3. KV Cache State Management
+    fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String>;
 
-    /// Roll back the KV cache to the specified offset.
-    fn rollback(&self, session: &mut EngineSession, offset: usize) -> Result<(), String> {
-        session.offset = offset;
-        Ok(())
-    }
+    fn fork_state(&self, session: &EngineSession) -> Result<Box<dyn Any + Send + Sync>, String>;
 
-    /// Prepare the runner for a speculative verification pass.
-    fn prepare_speculative_verification(&self, _session: &mut EngineSession) -> Result<(), String> {
-        Ok(())
-    }
+    /// 4. Introspection
+    fn get_backend_info(&self) -> BackendInfo;
 
-    /// Cleanup after a speculative verification pass.
-    fn cleanup_speculative_verification(&self, _session: &mut EngineSession) -> Result<(), String> {
-        Ok(())
-    }
-
-    /// Returns the name of the actual hardware backend being used.
-    fn backend_name(&self) -> String;
-
-    /// Returns the name of the model (e.g., from PTE metadata).
+    /// Returns the name of the model.
     fn model_name(&self) -> String {
         "unknown".to_string()
     }

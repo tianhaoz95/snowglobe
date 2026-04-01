@@ -5,6 +5,7 @@ use burn::{
 };
 // Closing brace for the `burn` import block
 use serde::{Deserialize, Serialize};
+use parking_lot::Mutex;
 
 use super::{KVCache, Model};
 use crate::layer::large_vocab::{
@@ -300,21 +301,40 @@ impl<B: Backend> Model<B> for Qwen<B> {
     }
 }
 
-use crate::model::runner::{EngineSession, ModelRunner};
+use crate::model::runner::{EngineSession, ModelRunner, ExecutionMode, LogitView, BackendInfo};
 use burn::tensor::{Shape, TensorData};
+use std::any::Any;
 
-impl<B: Backend> ModelRunner for Qwen<B> {
-    fn load(_path: &std::path::Path, _config: &crate::InitConfig) -> Result<Box<Self>, String> {
-        Err("load not implemented for Qwen directly".to_string())
+pub struct BurnRunner<B: Backend> {
+    pub model: Qwen<B>,
+    pub logit_buffer: Mutex<Vec<f32>>,
+}
+
+impl<B: Backend> BurnRunner<B> {
+    pub fn new(model: Qwen<B>) -> Self {
+        Self {
+            model,
+            logit_buffer: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl<B: Backend> ModelRunner for BurnRunner<B> {
+    fn load(_path: &std::path::Path, _config: &serde_json::Value) -> Result<Box<Self>, String> {
+        Err("load not implemented for BurnRunner directly".to_string())
     }
 
-    fn forward_all(
+    fn execute(
         &self,
         session: &mut EngineSession,
-    ) -> Result<Vec<Vec<f32>>, String> {
-        let device = self.rms_norm.gamma.val().device();
-        let start = session.offset;
-        let num_new = session.tokens.len() - start;
+        input_tokens: &[u32],
+        _mode: ExecutionMode,
+    ) -> Result<LogitView, String> {
+        println!("EXECUTE called with offset {}, num_tokens {}", session.current_kv_len, input_tokens.len());
+        println!("Input tokens (first 5): {:?}", &input_tokens[..std::cmp::min(5, input_tokens.len())]);
+        
+        let device = self.model.rms_norm.gamma.val().device();
+        let num_new = input_tokens.len();
 
         if num_new == 0 {
             return Err("No new tokens".to_string());
@@ -322,42 +342,78 @@ impl<B: Backend> ModelRunner for Qwen<B> {
 
         let input_tensor: Tensor<B, 2, Int> = Tensor::from_data(
             TensorData::new(
-                session.tokens[start..]
-                    .iter()
-                    .map(|&x| x as i32)
-                    .collect::<Vec<_>>(),
+                input_tokens.iter().map(|&x| x as i32).collect::<Vec<_>>(),
                 Shape::new([1, num_new]),
             ),
             &device,
         );
 
-        let cache = session.state.take().and_then(|s| {
-            s.downcast::<Vec<KVCache<B>>>().ok().map(|b| *b)
+        let mut is_downcast_failed = false;
+        let cache = session.backend_state.take().and_then(|s| {
+            match s.downcast::<Vec<KVCache<B>>>() {
+                Ok(b) => Some(*b),
+                Err(e) => {
+                    is_downcast_failed = true;
+                    // Put it back?
+                    None
+                }
+            }
         }).map(|c| c.into_iter().map(Some).collect());
 
-        let (output, new_cache) = Model::forward(self, input_tensor, cache, session.offset);
+        if is_downcast_failed {
+            println!("DOWNCAST FAILED!");
+        }
 
-        session.state = Some(Box::new(new_cache));
-        session.offset += num_new;
+        let (output, new_cache) = Model::forward(&self.model, input_tensor, cache, session.current_kv_len);
+
+        session.backend_state = Some(Box::new(new_cache));
+        session.current_kv_len += num_new;
 
         let [_, seq_len, vocab_size] = output.dims();
         let flat_data = output.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))?;
-        let all_logits: Vec<Vec<f32>> = flat_data
-            .chunks(vocab_size)
-            .map(|chunk| chunk.to_vec())
-            .collect();
 
-        Ok(all_logits)
+        Ok(LogitView {
+            data: flat_data,
+            shape: (seq_len, vocab_size),
+        })
     }
 
-    fn forward(
-        &self,
-        session: &mut EngineSession,
-    ) -> Result<Vec<f32>, String> {
-        let all_logits = self.forward_all(session)?;
-        Ok(all_logits.into_iter().last().ok_or("No logits returned")?)
+    fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String> {
+        if let Some(state) = &mut session.backend_state {
+            let caches = state.downcast_mut::<Vec<KVCache<B>>>().ok_or("Invalid state type")?;
+            for cache in caches {
+                cache.key = cache.key.clone().slice([0..1, 0..cache.key.dims()[1], 0..len, 0..cache.key.dims()[3]]);
+                cache.value = cache.value.clone().slice([0..1, 0..cache.value.dims()[1], 0..len, 0..cache.value.dims()[3]]);
+            }
+            session.current_kv_len = len;
+        }
+        Ok(())
     }
 
+    fn fork_state(&self, session: &EngineSession) -> Result<Box<dyn Any + Send + Sync>, String> {
+        if let Some(state) = &session.backend_state {
+            let caches = state.downcast_ref::<Vec<KVCache<B>>>().ok_or("Invalid state type")?;
+            let cloned_caches: Vec<KVCache<B>> = caches.iter().cloned().collect();
+            Ok(Box::new(cloned_caches))
+        } else {
+            Err("No state to fork".to_string())
+        }
+    }
+
+    fn get_backend_info(&self) -> BackendInfo {
+        BackendInfo {
+            name: self.model.backend_name(),
+            max_sequence_length: 32768,
+            max_batch_size: 1,
+        }
+    }
+
+    fn model_name(&self) -> String {
+        "Qwen".to_string()
+    }
+}
+
+impl<B: Backend> Qwen<B> {
     fn backend_name(&self) -> String {
         #[cfg(feature = "high_perf")]
         {

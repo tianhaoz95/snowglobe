@@ -108,18 +108,27 @@ fn extract_tool_content(content: &ChatCompletionRequestToolMessageContent) -> St
     }
 }
 
-fn forward_model(model_arc: &Arc<Mutex<EngineVariant>>, session_state: &mut EngineSession) -> Result<Vec<f32>, String> {
-    println!("RUST: forward_model START, locking model_arc");
+fn forward_model(
+    model_arc: &Arc<Mutex<EngineVariant>>, 
+    session_state: &mut EngineSession,
+    tokens_to_process: &[u32],
+    mode: crate::model::runner::ExecutionMode,
+) -> Result<Vec<f32>, String> {
     let model = model_arc.lock();
-    println!("RUST: forward_model locked model_arc, calling variant forward");
-    let result = match &*model {
-        EngineVariant::Burn(m) => m.forward(session_state).map_err(|e| e.to_string()),
-        EngineVariant::ExecuTorch(m) => m.forward(session_state).map_err(|e| e.to_string()),
-        EngineVariant::LlamaCpp(m) => m.forward(session_state).map_err(|e| e.to_string()),
-        EngineVariant::Speculative(m) => m.forward(session_state).map_err(|e| e.to_string()),
-    };
-    println!("RUST: forward_model variant forward FINISHED, success: {}", result.is_ok());
-    result
+    let view = match &*model {
+        EngineVariant::Burn(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
+        EngineVariant::ExecuTorch(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
+        #[cfg(feature = "llamacpp")]
+        EngineVariant::LlamaCpp(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
+        EngineVariant::Speculative(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
+    }?;
+    
+    let (seq_len, vocab_size) = view.shape;
+    if seq_len == 0 {
+        return Err("No logits returned".to_string());
+    }
+    let start = (seq_len - 1) * vocab_size;
+    Ok(view.data[start..].to_vec())
 }
 
 pub async fn create_chat_completion(
@@ -166,13 +175,8 @@ pub async fn create_chat_completion(
         Ok::<_, String>((token_ids, im_start_id, im_end_id, newline_id))
     }).await.map_err(|e| format!("spawn_blocking failed: {}", e))??;
 
-    let session_state = EngineSession {
-        tokens: token_ids,
-        state: None,
-        offset: 0,
-        last_accepted_count: 0,
-        is_speculative: false,
-    };
+    let mut session_state = EngineSession::new(1);
+    let mut tokens = token_ids.clone();
 
     #[allow(deprecated)]
     let generation_limit = request.max_completion_tokens.or(request.max_tokens).unwrap_or(init_config.max_gen_len as u32);
@@ -183,20 +187,25 @@ pub async fn create_chat_completion(
     let output_stream = async_stream::try_stream! {
         let mut session_state = session_state;
         let mut full_text = String::new();
+        let mut is_prefill = true;
+        let mut input_tokens = token_ids;
         
         for _ in 0..generation_limit {
-            let num_tokens_before = session_state.tokens.len();
+            let num_tokens_before = tokens.len();
 
-            // Use spawn_blocking so the blocking forward pass doesn't starve the tokio runtime.
-            // Without this, the runtime thread is blocked and sink.add() can never be processed.
             let model_arc_clone = model_arc.clone();
             let mut session_moved = session_state;
+            let current_input = input_tokens.clone();
+            
             let (logits_result, session_returned) = tokio::task::spawn_blocking(move || {
-                let logits = forward_model(&model_arc_clone, &mut session_moved);
+                let mode = if is_prefill { crate::model::runner::ExecutionMode::Prefill } else { crate::model::runner::ExecutionMode::Decode };
+                let logits = forward_model(&model_arc_clone, &mut session_moved, &current_input, mode);
                 (logits, session_moved)
             }).await.map_err(|e| format!("spawn_blocking failed: {}", e))?;
+            
             session_state = session_returned;
             let logits = logits_result.map_err(|e| e)?;
+            is_prefill = false;
 
             let next_token_id = logits
                 .iter()
@@ -209,8 +218,10 @@ pub async fn create_chat_completion(
                 break;
             }
 
-            session_state.tokens.push(next_token_id);
-            let new_text = tokenizer_clone.decode(&session_state.tokens[num_tokens_before..], true).map_err(|e| e.to_string())?;
+            tokens.push(next_token_id);
+            input_tokens = vec![next_token_id];
+            
+            let new_text = tokenizer_clone.decode(&tokens[num_tokens_before..], true).map_err(|e| e.to_string())?;
             
             if !new_text.is_empty() {
                 full_text.push_str(&new_text);
@@ -400,7 +411,11 @@ pub use backend_setup::Device;
 
 pub static GLOBAL_MODEL: RwLock<Option<LoadedModel<Backend>>> = RwLock::new(None);
 
-pub type SessionState = EngineSession;
+pub struct SessionState {
+    pub engine_session: EngineSession,
+    pub tokens: Vec<u32>,
+    pub last_accepted_count: usize,
+}
 
 pub static SESSIONS: RwLock<Option<DashMap<String, SessionState>>> = RwLock::new(None);
 
@@ -435,6 +450,7 @@ pub fn get_model_info() -> Option<crate::model::ModelInfo> {
         info.runner = match &*m.model.lock() {
             EngineVariant::Burn(_) => "Burn".to_string(),
             EngineVariant::ExecuTorch(_) => "ExecuTorch".to_string(),
+            #[cfg(feature = "llamacpp")]
             EngineVariant::LlamaCpp(_) => "llama.cpp".to_string(),
             EngineVariant::Speculative(_) => "Speculative".to_string(),
         };
@@ -548,32 +564,39 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             init_config,
         });
     } else if init_config.backend == BackendType::LlamaCpp {
-        let gguf_path = Path::new(&cache_dir).join("model.gguf");
-        if !gguf_path.exists() {
-            return "GGUF model file missing (model.gguf).".to_string();
+        #[cfg(feature = "llamacpp")]
+        {
+            let gguf_path = Path::new(&cache_dir).join("model.gguf");
+            if !gguf_path.exists() {
+                return "GGUF model file missing (model.gguf).".to_string();
+            }
+            use crate::model::llama_cpp::LlamaCppRunner;
+            let model = match LlamaCppRunner::load(&gguf_path, &serde_json::Value::Null) {
+                Ok(m) => m,
+                Err(e) => return format!("Failed to load LlamaCpp model: {}", e),
+            };
+
+            let engine = if init_config.speculate_tokens > 0 {
+                EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
+                    model,
+                    init_config.speculate_tokens,
+                )))
+            } else {
+                EngineVariant::LlamaCpp(model)
+            };
+
+            let _ = GLOBAL_MODEL.write().insert(LoadedModel {
+                model: Arc::new(Mutex::new(engine)),
+                tokenizer,
+                config,
+                device,
+                init_config,
+            });
         }
-        use crate::model::llama_cpp::LlamaCppRunner;
-        let model = match LlamaCppRunner::load(&gguf_path, &init_config) {
-            Ok(m) => m,
-            Err(e) => return format!("Failed to load LlamaCpp model: {}", e),
-        };
-
-        let engine = if init_config.speculate_tokens > 0 {
-            EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
-                model,
-                init_config.speculate_tokens,
-            )))
-        } else {
-            EngineVariant::LlamaCpp(model)
-        };
-
-        let _ = GLOBAL_MODEL.write().insert(LoadedModel {
-            model: Arc::new(Mutex::new(engine)),
-            tokenizer,
-            config,
-            device,
-            init_config,
-        });
+        #[cfg(not(feature = "llamacpp"))]
+        {
+            return "LlamaCpp backend is not compiled in.".to_string();
+        }
     } else {
         let mut model: Qwen<Backend> = config.init(&device);
         let model_path = Path::new(&cache_dir).join("model.safetensors");
@@ -607,11 +630,11 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
 
         let engine = if init_config.speculate_tokens > 0 {
             EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
-                Box::new(model),
+                Box::new(crate::model::qwen::BurnRunner::new(model)),
                 init_config.speculate_tokens,
             )))
         } else {
-            EngineVariant::Burn(Box::new(model))
+            EngineVariant::Burn(Box::new(crate::model::qwen::BurnRunner::new(model)))
         };
 
         let _ = GLOBAL_MODEL.write().insert(LoadedModel {
@@ -659,10 +682,9 @@ pub fn init_session() -> String {
     token_ids.push(newline_id);
 
     let state = SessionState {
+        engine_session: EngineSession::new(1),
         tokens: token_ids,
-        state: None,
-        offset: 0,
-        last_accepted_count: 0, is_speculative: false,
+        last_accepted_count: 0,
     };
 
     let sessions_lock = SESSIONS.read();
@@ -749,14 +771,30 @@ where
         init_config.max_gen_len as u32
     };
 
+    let mut is_prefill = true;
+    let mut input_tokens = session_state.tokens.clone();
+
     for _ in 0..generation_limit {
         let num_tokens_before = session_state.tokens.len();
-        let logits = match &*model {
-            EngineVariant::Burn(m) => m.forward(&mut session_state)?,
-            EngineVariant::ExecuTorch(m) => m.forward(&mut session_state)?,
-            EngineVariant::LlamaCpp(m) => m.forward(&mut session_state)?,
-            EngineVariant::Speculative(m) => m.forward(&mut session_state)?,
+        
+        let mode = if is_prefill { crate::model::runner::ExecutionMode::Prefill } else { crate::model::runner::ExecutionMode::Decode };
+        
+        let view = match &*model {
+            EngineVariant::Burn(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
+            EngineVariant::ExecuTorch(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
+            #[cfg(feature = "llamacpp")]
+            EngineVariant::LlamaCpp(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
+            EngineVariant::Speculative(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
         };
+        
+        is_prefill = false;
+        
+        let (seq_len, vocab_size) = view.shape;
+        if seq_len == 0 {
+            return Err("No logits returned".to_string());
+        }
+        let start = (seq_len - 1) * vocab_size;
+        let logits = &view.data[start..];
 
         let next_token_id = logits
             .iter()
@@ -770,6 +808,7 @@ where
         }
 
         session_state.tokens.push(next_token_id);
+        input_tokens = vec![next_token_id];
 
         let new_text = tokenizer.decode(&session_state.tokens[num_tokens_before..], true).unwrap_or_default();
         if !new_text.is_empty() {
@@ -816,22 +855,22 @@ mod tests {
         println!("Benchmark sequence length: {} tokens", n);
 
         // 1. Prefill to get initial cache
-        let mut session_cached = EngineSession { tokens: tokens.clone(), offset: 0, state: None, last_accepted_count: 0, is_speculative: false };
+        let mut session_cached = EngineSession::new(1);
         if let EngineVariant::Burn(m) = &*model {
-            let _ = m.forward(&mut session_cached).unwrap();
+            let _ = m.execute(&mut session_cached, &tokens, crate::model::runner::ExecutionMode::Prefill).unwrap();
         }
 
         // 2. Measure "With KV Cache" (Generating 1 token)
         let next_token_id = 1234u32;
-        session_cached.tokens.push(next_token_id);
+        let mut decode_tokens = vec![next_token_id];
 
         let start_cached = std::time::Instant::now();
         let iterations = 10;
         
         if let EngineVariant::Burn(m) = &*model {
             for _ in 0..iterations {
-                let _ = m.forward(&mut session_cached).unwrap();
-                session_cached.tokens.push(1234);
+                let _ = m.execute(&mut session_cached, &decode_tokens, crate::model::runner::ExecutionMode::Decode).unwrap();
+                decode_tokens = vec![1234u32];
             }
         }
         let duration_cached = start_cached.elapsed() / iterations;
@@ -843,8 +882,8 @@ mod tests {
         let start_full = std::time::Instant::now();
         if let EngineVariant::Burn(m) = &*model {
             for _ in 0..iterations {
-                let mut fresh_session = EngineSession { tokens: tokens_full.clone(), offset: 0, state: None, last_accepted_count: 0, is_speculative: false };
-                let _ = m.forward(&mut fresh_session).unwrap();
+                let mut fresh_session = EngineSession::new(2);
+                let _ = m.execute(&mut fresh_session, &tokens_full, crate::model::runner::ExecutionMode::Prefill).unwrap();
             }
         }
         let duration_full = start_full.elapsed() / iterations;
