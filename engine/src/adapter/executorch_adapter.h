@@ -11,6 +11,8 @@ typedef struct ExecuTorchModule ExecuTorchModule;
 
 ExecuTorchModule* executorch_module_load(const char* pte_path);
 void executorch_module_destroy(ExecuTorchModule* module);
+const char* executorch_module_get_name(ExecuTorchModule* module);
+size_t executorch_module_get_vocab_size(ExecuTorchModule* module);
 
 // For simplicity, we assume a fixed input size of (1, 128) for tokens as per current lib.rs logic
 // and output is (1, 128, vocab_size)

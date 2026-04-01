@@ -109,13 +109,17 @@ fn extract_tool_content(content: &ChatCompletionRequestToolMessageContent) -> St
 }
 
 fn forward_model(model_arc: &Arc<Mutex<EngineVariant>>, session_state: &mut EngineSession) -> Result<Vec<f32>, String> {
+    println!("RUST: forward_model START, locking model_arc");
     let model = model_arc.lock();
-    match &*model {
+    println!("RUST: forward_model locked model_arc, calling variant forward");
+    let result = match &*model {
         EngineVariant::Burn(m) => m.forward(session_state).map_err(|e| e.to_string()),
         EngineVariant::ExecuTorch(m) => m.forward(session_state).map_err(|e| e.to_string()),
         EngineVariant::LlamaCpp(m) => m.forward(session_state).map_err(|e| e.to_string()),
         EngineVariant::Speculative(m) => m.forward(session_state).map_err(|e| e.to_string()),
-    }
+    };
+    println!("RUST: forward_model variant forward FINISHED, success: {}", result.is_ok());
+    result
 }
 
 pub async fn create_chat_completion(
@@ -783,7 +787,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::model::HardwareTarget;
     #[tokio::test]
     async fn test_kv_cache_latency_comparison() {
         let cache_dir = setup_test("./tmp/testing", "qwen2.5").await;
@@ -793,7 +797,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -864,7 +870,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -920,7 +928,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::LlamaCpp, speculate_tokens: 0,
+                backend: BackendType::LlamaCpp,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -950,7 +960,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::LlamaCpp, speculate_tokens: 0,
+                backend: BackendType::LlamaCpp,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -974,18 +986,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_one_plus_one_pte() {
-        // 1. Ensure PTE exists at root and prepare cache dir
-        let pte_path = "../qwen3_0.6b.pte";
-        assert!(std::path::Path::new(pte_path).exists());
+        println!("RUST: test_one_plus_one_pte START");
+        // 1. Prepare cache dir
+        let cache_dir = if let Ok(dir) = std::env::var("SNOWGLOBE_TEST_DIR") {
+            println!("RUST: Using SNOWGLOBE_TEST_DIR: {}", dir);
+            dir
+        } else {
+            // 1. Ensure PTE exists at root and prepare cache dir
+            let pte_path = "../qwen3_0.6b.pte";
+            assert!(std::path::Path::new(pte_path).exists(), "Default PTE not found at {}. Use SNOWGLOBE_TEST_DIR to specify a path on Android.", pte_path);
 
-        let cache_dir = setup_test("./tmp/testing_pte", "qwen3").await;
-        
-        // 2. Link or copy the pte file to the cache dir as expected by init_model
-        let target_pte = Path::new(&cache_dir).join("model.pte");
-        if !target_pte.exists() {
-            std::fs::copy(pte_path, target_pte).expect("Failed to copy PTE to cache dir");
-        }
+            let dir = setup_test("./tmp/testing_pte", "qwen3").await;
+            
+            // 2. Link or copy the pte file to the cache dir as expected by init_model
+            let target_pte = Path::new(&dir).join("model.pte");
+            if !target_pte.exists() {
+                std::fs::copy(pte_path, target_pte).expect("Failed to copy PTE to cache dir");
+            }
+            dir
+        };
 
+        println!("RUST: Calling init with cache_dir: {}", cache_dir);
         // 3. Initialize engine with ExecuTorch enabled
         init(
             cache_dir,
@@ -993,18 +1014,22 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: true,
-                backend: BackendType::ExecuTorch, speculate_tokens: 0,
-            },
-        )
+                backend: BackendType::ExecuTorch,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
+            },        )
         .await;
 
+        println!("RUST: init DONE, calling init_session");
         let session_id = init_session();
         let prompt = "what is the capital of China? /no_think";
         let sink = TestSink(Mutex::new(String::new()));
         
+        println!("RUST: Calling generate_response with prompt: {}", prompt);
         // 4. Verify the integrated generate_response works with ExecuTorch
         let result = generate_response(&session_id, prompt, 256, &sink);
 
+        println!("RUST: generate_response FINISHED, result: {:?}", result.is_ok());
         assert!(result.is_ok());
         let response = sink.0.lock().clone();
         println!("Prompt: {}", prompt);
@@ -1022,7 +1047,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -1049,7 +1076,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -1076,7 +1105,9 @@ mod tests {
                 vocab_shards: 0,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -1105,6 +1136,7 @@ mod tests {
                     max_gen_len: 128,
                     use_executorch: false,
                     backend: BackendType::LlamaCpp,
+                    hardware: HardwareTarget::Auto,
                     speculate_tokens: 4,
                 },
             )
@@ -1142,7 +1174,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -1179,7 +1213,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;
@@ -1227,7 +1263,9 @@ mod tests {
                 vocab_shards: 1,
                 max_gen_len: 256,
                 use_executorch: false,
-                backend: BackendType::Burn, speculate_tokens: 0,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
             },
         )
         .await;

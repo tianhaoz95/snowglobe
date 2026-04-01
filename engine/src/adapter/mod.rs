@@ -7,6 +7,7 @@ struct ExecuTorchModuleOpaque(c_void);
 unsafe extern "C" {
     fn executorch_module_load(pte_path: *const c_char) -> *mut ExecuTorchModuleOpaque;
     fn executorch_module_get_name(module: *mut ExecuTorchModuleOpaque) -> *const c_char;
+    fn executorch_module_get_vocab_size(module: *mut ExecuTorchModuleOpaque) -> usize;
     fn executorch_module_destroy(module: *mut ExecuTorchModuleOpaque);
     fn executorch_module_forward(
         module: *mut ExecuTorchModuleOpaque,
@@ -31,6 +32,11 @@ unsafe extern "C" fn executorch_module_get_name(_module: *mut ExecuTorchModuleOp
 }
 
 #[cfg(not(has_executorch))]
+unsafe extern "C" fn executorch_module_get_vocab_size(_module: *mut ExecuTorchModuleOpaque) -> usize {
+    0
+}
+
+#[cfg(not(has_executorch))]
 unsafe extern "C" fn executorch_module_destroy(_module: *mut ExecuTorchModuleOpaque) {}
 
 #[cfg(not(has_executorch))]
@@ -50,6 +56,7 @@ unsafe extern "C" fn executorch_module_forward(
 #[derive(Debug)]
 pub struct Module {
     ptr: *mut ExecuTorchModuleOpaque,
+    vocab_size: usize,
 }
 
 impl Module {
@@ -62,7 +69,9 @@ impl Module {
             return Err("Failed to load ExecuTorch module".to_string());
         }
         println!("RUST: executorch_module_load SUCCESS");
-        Ok(Self { ptr })
+        let vocab_size = unsafe { executorch_module_get_vocab_size(ptr) };
+        println!("RUST: executorch_module_get_vocab_size: {}", vocab_size);
+        Ok(Self { ptr, vocab_size })
     }
 
     pub fn get_name(&self) -> String {
@@ -86,9 +95,18 @@ impl Module {
             return Err("Unsupported token ID type. Use i32 or i64.".to_string());
         };
 
-        let mut vocab_size = 0;
-        let mut output_logits = vec![0.0f32; 128 * 152064];
+        if self.vocab_size == 0 {
+            return Err("Vocab size is 0. Module not initialized correctly?".to_string());
+        }
 
+        let mut vocab_size = 0;
+        
+        // Calculate required buffer size: 
+        // If num_positions is 0, we assume the C++ side will return all 128 positions
+        let requested_positions = if num_positions == 0 { 128 } else { num_positions };
+        let mut output_logits = vec![0.0f32; requested_positions * self.vocab_size];
+
+        println!("RUST: Calling executorch_module_forward (tokens.len={}, start_pos={}, num_positions={})", tokens.len(), start_pos, num_positions);
         let status = unsafe {
             executorch_module_forward(
                 self.ptr,
@@ -101,6 +119,7 @@ impl Module {
                 num_positions,
             )
         };
+        println!("RUST: executorch_module_forward FINISHED with status {}", status);
 
         if status != 0 {
             return Err(format!("Forward failed with status {}", status));
