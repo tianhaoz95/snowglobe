@@ -30,7 +30,7 @@ pub fn apply_rotary_pos_emb<B: Backend>(
         .clone()
         .slice([0..1, 0..1, offset..offset + seq_len, 0..head_dim]);
 
-    // 3. Standard RoPE formula: (x * cos) + (rotate_half(x) * sin)
+    // 3. formula: (x * cos) + (rotate(x) * sin)
     let q_out = query.mul(cos.clone()).add(q_rotated.mul(sin.clone()));
     let k_out = key.mul(cos).add(k_rotated.mul(sin));
 
@@ -38,7 +38,6 @@ pub fn apply_rotary_pos_emb<B: Backend>(
 }
 
 /// Creates cached sinusoidal and cosinusoidal values for Rotary Positional Embeddings (RoPE).
-/// Optimized for the "Rotate-Half" strategy.
 pub fn create_sin_cos_cache<B: Backend>(
     head_dim: usize,
     max_position_embeddings: usize,
@@ -64,8 +63,7 @@ pub fn create_sin_cos_cache<B: Backend>(
     let freqs = t.matmul(inv_freq_tensor);
 
     // 4. Concatenate frequencies with themselves [max_seq, head_dim]
-    // This allows the first half and second half of the hidden states
-    // to be multiplied by the same sin/cos values.
+    // This matches the Rotate Half strategy where both halves share the same frequencies.
     let emb = Tensor::cat(vec![freqs.clone(), freqs], 1);
 
     // 5. Reshape to [1, 1, max_seq, head_dim] for broadcasting during attention

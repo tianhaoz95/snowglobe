@@ -124,6 +124,7 @@ fn forward_model(
     }?;
     
     let (seq_len, vocab_size) = view.shape;
+    
     if seq_len == 0 {
         return Err("No logits returned".to_string());
     }
@@ -946,6 +947,8 @@ mod tests {
         tokio::fs::create_dir_all(cache_dir).await.unwrap();
         let res = if model == "qwen3" {
             download_qwen3_0_6b(cache_dir.to_string()).await
+        } else if model == "qwen3.5" {
+            download_qwen3_5_0_8b(cache_dir.to_string()).await
         } else if model == "gguf" {
             download_qwen_gguf(cache_dir.to_string()).await
         } else {
@@ -955,6 +958,35 @@ mod tests {
             panic!("Setup failed: {}", res);
         }
         cache_dir.to_string()
+    }
+
+    #[tokio::test]
+    async fn test_one_plus_one_qwen3_5() {
+        let cache_dir = setup_test("./tmp/testing_qwen3_5", "qwen2.5").await;
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: 256,
+                use_executorch: false,
+                backend: BackendType::Burn,
+                hardware: HardwareTarget::Auto,
+                speculate_tokens: 0,
+            },
+        )
+        .await;
+        let session_id = init_session();
+        let prompt = "what is the capital of china? only answer the city name /no_think";
+
+        let sink = TestSink(Mutex::new(String::new()));
+        let result = generate_response(&session_id, prompt, 256, &sink);
+
+        assert!(result.is_ok());
+        let response = sink.0.lock().clone();
+        println!("Prompt: {}", prompt);
+        println!("Response: {}", response);
+
+        assert!(response.to_lowercase().contains("beijing"));
     }
 
     #[tokio::test]

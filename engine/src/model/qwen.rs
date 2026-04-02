@@ -1,6 +1,6 @@
 use burn::{
     module::{Module, Param},
-    nn::{EmbeddingConfig, Linear, LinearConfig, RmsNorm, RmsNormConfig},
+    nn::{EmbeddingConfig, RmsNorm, RmsNormConfig},
     tensor::{Int, Tensor, backend::Backend},
 };
 // Closing brace for the `burn` import block
@@ -12,6 +12,56 @@ use crate::layer::large_vocab::{
     LargeVocabEmbedding, LargeVocabLinear, VocabEmbedding, VocabLinear,
 };
 use crate::rope::{apply_rotary_pos_emb, create_sin_cos_cache};
+
+#[derive(Debug, Module)]
+pub struct Linear<B: Backend> {
+    pub weight: Param<Tensor<B, 2>>,
+    pub bias: Option<Param<Tensor<B, 1>>>,
+}
+
+impl<B: Backend> Linear<B> {
+    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+        let weight = self.weight.val();
+        let [out_dim, in_dim] = weight.dims();
+        
+        // Explicitly transpose and unsqueeze to [1, in, out] for matmul with [batch, seq, in]
+        let weight_t = weight.swap_dims(0, 1).reshape([1, in_dim, out_dim]);
+        let mut x = input.matmul(weight_t);
+        
+        if let Some(bias) = &self.bias {
+            x = x.add(bias.val().reshape([1, 1, out_dim]));
+        }
+        x
+    }
+}
+
+pub struct LinearConfig {
+    pub d_in: usize,
+    pub d_out: usize,
+    pub bias: bool,
+}
+
+impl LinearConfig {
+    pub fn new(d_in: usize, d_out: usize) -> Self {
+        Self { d_in, d_out, bias: true }
+    }
+    pub fn with_bias(mut self, bias: bool) -> Self {
+        self.bias = bias;
+        self
+    }
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Linear<B> {
+        let weight = Tensor::<B, 2>::zeros([self.d_out, self.d_in], device);
+        let bias = if self.bias {
+            Some(Param::from_tensor(Tensor::<B, 1>::zeros([self.d_out], device)))
+        } else {
+            None
+        };
+        Linear {
+            weight: Param::from_tensor(weight),
+            bias,
+        }
+    }
+}
 
 /// Configuration for the Qwen model.
 #[derive(Debug, Clone, Serialize, Deserialize, Module)]
@@ -56,13 +106,13 @@ pub struct QwenConfig {
 }
 
 fn default_vocab_size() -> usize { 151936 }
-fn default_hidden_size() -> usize { 1024 }
-fn default_num_hidden_layers() -> usize { 28 }
-fn default_num_attention_heads() -> usize { 16 }
-fn default_num_key_value_heads() -> usize { 8 }
-fn default_intermediate_size() -> usize { 3072 }
+fn default_hidden_size() -> usize { 896 }
+fn default_num_hidden_layers() -> usize { 24 }
+fn default_num_attention_heads() -> usize { 14 }
+fn default_num_key_value_heads() -> usize { 2 }
+fn default_intermediate_size() -> usize { 4864 }
 fn default_rope_theta() -> f64 { 1000000.0 }
-fn default_max_position_embeddings() -> usize { 40960 }
+fn default_max_position_embeddings() -> usize { 32768 }
 fn default_rms_norm_eps() -> f64 { 1e-6 }
 fn default_hidden_act() -> String { "silu".to_string() }
 
@@ -195,6 +245,7 @@ impl QwenConfig {
                     num_key_value_heads,
                     head_dim,
                     intermediate_size,
+                    self.rope_theta,
                     max_position_embeddings,
                     rms_norm_eps,
                     dropout,
@@ -239,13 +290,13 @@ impl Default for QwenConfig {
     fn default() -> Self {
         Self {
             vocab_size: 151936,
-            hidden_size: 1024,
-            num_hidden_layers: 28,
-            num_attention_heads: 16,
-            num_key_value_heads: 8,
-            intermediate_size: 3072,
+            hidden_size: 896,
+            num_hidden_layers: 24,
+            num_attention_heads: 14,
+            num_key_value_heads: 2,
+            intermediate_size: 4864,
             rope_theta: 1000000.0,
-            max_position_embeddings: 40960,
+            max_position_embeddings: 32768,
             rms_norm_eps: 1e-6,
             use_cache: true,            // Typically true for inference
             tied_word_embeddings: true, // Check Qwen config for this
@@ -438,6 +489,7 @@ pub struct QwenBlockConfig {
     pub num_key_value_heads: usize,
     pub head_dim: usize,
     pub intermediate_size: usize,
+    pub rope_theta: f64,
     pub max_position_embeddings: usize,
     pub rms_norm_eps: f64,
     pub dropout: f32,
@@ -452,6 +504,7 @@ impl QwenBlockConfig {
         num_key_value_heads: usize,
         head_dim: usize,
         intermediate_size: usize,
+        rope_theta: f64,
         max_position_embeddings: usize,
         rms_norm_eps: f64,
         dropout: f32,
@@ -464,6 +517,7 @@ impl QwenBlockConfig {
             num_key_value_heads,
             head_dim,
             intermediate_size,
+            rope_theta,
             max_position_embeddings,
             rms_norm_eps,
             dropout,
@@ -492,8 +546,9 @@ impl QwenBlockConfig {
             num_attention_heads,
             num_key_value_heads,
             head_dim,
-            QwenConfig::default().rope_theta, // Use default for now
+            self.rope_theta,
             max_position_embeddings,
+            rms_norm_eps,
             dropout,
             qkv_bias,
             use_qk_norm,
@@ -558,6 +613,7 @@ pub struct QwenAttentionConfig {
     pub head_dim: usize,
     pub rope_theta: f64,
     pub max_position_embeddings: usize,
+    pub rms_norm_eps: f64,
     pub dropout: f32,
     pub qkv_bias: bool,
     pub use_qk_norm: bool,
@@ -571,6 +627,7 @@ impl QwenAttentionConfig {
         head_dim: usize,
         rope_theta: f64,
         max_position_embeddings: usize,
+        rms_norm_eps: f64,
         dropout: f32,
         qkv_bias: bool,
         use_qk_norm: bool,
@@ -582,6 +639,7 @@ impl QwenAttentionConfig {
             head_dim,
             rope_theta,
             max_position_embeddings,
+            rms_norm_eps,
             dropout,
             qkv_bias,
             use_qk_norm,
@@ -593,6 +651,7 @@ impl QwenAttentionConfig {
         let num_attention_heads = self.num_attention_heads;
         let num_key_value_heads = self.num_key_value_heads;
         let head_dim = self.head_dim;
+        eprintln!("RUST: QwenAttentionConfig::init head_dim: {}, hidden_size: {}", head_dim, hidden_size);
 
         let q_proj = LinearConfig::new(hidden_size, num_attention_heads * head_dim)
             .with_bias(self.qkv_bias)
@@ -609,8 +668,8 @@ impl QwenAttentionConfig {
 
         let (q_norm, k_norm) = if self.use_qk_norm {
             (
-                Some(RmsNormConfig::new(head_dim).init(device)),
-                Some(RmsNormConfig::new(head_dim).init(device)),
+                Some(RmsNormConfig::new(head_dim).with_epsilon(self.rms_norm_eps).init(device)),
+                Some(RmsNormConfig::new(head_dim).with_epsilon(self.rms_norm_eps).init(device)),
             )
         } else {
             (None, None)
@@ -669,9 +728,9 @@ impl<B: Backend> QwenAttention<B> {
     ) -> (Tensor<B, 3>, KVCache<B>) {
         let [batch_size, seq_len, _hidden_size] = query.dims();
 
-        let q = query.matmul(self.q_proj.weight.val().transpose().unsqueeze());
-        let k = key.matmul(self.k_proj.weight.val().transpose().unsqueeze());
-        let v = value.matmul(self.v_proj.weight.val().transpose().unsqueeze());
+        let q = self.q_proj.forward(query); // [batch_size, seq_len, num_attention_heads * head_dim]
+        let k = self.k_proj.forward(key); // [batch_size, seq_len, num_key_value_heads * head_dim]
+        let v = self.v_proj.forward(value); // [batch_size, seq_len, num_key_value_heads * head_dim]
 
         let mut q_reshaped = q
             .reshape([batch_size, seq_len, self.num_attention_heads, self.head_dim])
@@ -762,7 +821,8 @@ impl<B: Backend> QwenAttention<B> {
         };
 
         // Scaled Dot-Product Attention
-        let scores = q_rotated.matmul(k_gqa.swap_dims(2, 3)); // [batch_size, num_attention_heads, seq_len, seq_len_k]
+        let k_gqa_t = k_gqa.swap_dims(2, 3);
+        let scores = q_rotated.matmul(k_gqa_t); // [batch_size, num_attention_heads, seq_len, seq_len_k]
         let mut scores = scores.div_scalar(f64::sqrt(self.head_dim as f64));
 
         // Causal mask
@@ -775,11 +835,6 @@ impl<B: Backend> QwenAttention<B> {
             scores = scores.mask_fill(causal_mask.equal_elem(false), f64::NEG_INFINITY);
         }
 
-        // Apply mask (if provided)
-        // if let Some(mask) = _mask {
-        //     scores = scores.mask_fill(mask, f64::NEG_INFINITY);
-        // }
-
         let attn_weights =
             burn::tensor::activation::softmax(scores.clone(), scores.dims().len() - 1);
         let attn_output = attn_weights.matmul(v_gqa); // [batch_size, num_attention_heads, seq_len, head_dim]
@@ -790,7 +845,7 @@ impl<B: Backend> QwenAttention<B> {
             self.num_attention_heads * self.head_dim,
         ]); // [batch_size, seq_len, hidden_size]
 
-        (attn_output.matmul(self.o_proj.weight.val().transpose().unsqueeze()), new_cache)
+        (self.o_proj.forward(attn_output), new_cache)
     }
 }
 
@@ -840,12 +895,12 @@ pub struct QwenMLP<B: Backend> {
 
 impl<B: Backend> QwenMLP<B> {
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let gate = input.clone().matmul(self.gate_proj.weight.val().transpose().unsqueeze());
-        let up = input.matmul(self.up_proj.weight.val().transpose().unsqueeze());
+        let gate = self.gate_proj.forward(input.clone());
+        let up = self.up_proj.forward(input);
 
         let activated_gate = burn::tensor::activation::silu(gate);
         let intermediate = activated_gate.mul(up);
-        intermediate.matmul(self.down_proj.weight.val().transpose().unsqueeze())
+        self.down_proj.forward(intermediate)
     }
 }
 
@@ -883,7 +938,8 @@ mod tests {
 
         // Check attention params
         let layer0 = &model.layers[0];
-        assert_eq!(layer0.self_attn.head_dim, 128);
+        let head_dim = 896 / 14; 
+        assert_eq!(layer0.self_attn.head_dim, head_dim);
         assert!(layer0.self_attn.q_norm.is_some());
         assert!(layer0.self_attn.k_norm.is_some());
     }

@@ -1,8 +1,9 @@
 use burn::{
     module::{Module, Param},
-    nn::{Embedding, EmbeddingConfig, Linear, LinearConfig},
+    nn::{Embedding, EmbeddingConfig},
     tensor::{Int, Shape, Tensor, TensorData, backend::Backend},
 };
+use crate::model::qwen::{Linear, LinearConfig};
 use bytemuck;
 use half::{bf16, f16};
 use safetensors::{Dtype, tensor::TensorView};
