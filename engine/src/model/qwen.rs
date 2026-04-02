@@ -56,13 +56,13 @@ pub struct QwenConfig {
 }
 
 fn default_vocab_size() -> usize { 151936 }
-fn default_hidden_size() -> usize { 896 }
-fn default_num_hidden_layers() -> usize { 24 }
-fn default_num_attention_heads() -> usize { 14 }
-fn default_num_key_value_heads() -> usize { 2 }
-fn default_intermediate_size() -> usize { 4864 }
+fn default_hidden_size() -> usize { 1024 }
+fn default_num_hidden_layers() -> usize { 28 }
+fn default_num_attention_heads() -> usize { 16 }
+fn default_num_key_value_heads() -> usize { 8 }
+fn default_intermediate_size() -> usize { 3072 }
 fn default_rope_theta() -> f64 { 1000000.0 }
-fn default_max_position_embeddings() -> usize { 32768 }
+fn default_max_position_embeddings() -> usize { 40960 }
 fn default_rms_norm_eps() -> f64 { 1e-6 }
 fn default_hidden_act() -> String { "silu".to_string() }
 
@@ -239,13 +239,13 @@ impl Default for QwenConfig {
     fn default() -> Self {
         Self {
             vocab_size: 151936,
-            hidden_size: 896,
-            num_hidden_layers: 24,
-            num_attention_heads: 14,
-            num_key_value_heads: 2,
-            intermediate_size: 4864,
+            hidden_size: 1024,
+            num_hidden_layers: 28,
+            num_attention_heads: 16,
+            num_key_value_heads: 8,
+            intermediate_size: 3072,
             rope_theta: 1000000.0,
-            max_position_embeddings: 32768,
+            max_position_embeddings: 40960,
             rms_norm_eps: 1e-6,
             use_cache: true,            // Typically true for inference
             tied_word_embeddings: true, // Check Qwen config for this
