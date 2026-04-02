@@ -788,6 +788,9 @@ where
             EngineVariant::Speculative(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
         };
         
+        if is_prefill {
+            model.lock().update_cache(&session_state.tokens);
+        }
         is_prefill = false;
         
         let (seq_len, vocab_size) = view.shape;
@@ -811,6 +814,7 @@ where
         }
 
         session_state.tokens.push(next_token_id);
+        model.lock().update_cache(&session_state.tokens);
         input_tokens = vec![next_token_id];
 
         let new_text = tokenizer.decode(&session_state.tokens[num_tokens_before..], true).unwrap_or_default();
@@ -820,6 +824,7 @@ where
             }
         }
     }
+    model.lock().update_cache(&session_state.tokens);
     session_state.tokens.push(im_end_id);
     session_state.tokens.push(newline_id);
 

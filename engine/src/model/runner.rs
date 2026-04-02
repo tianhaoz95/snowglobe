@@ -76,4 +76,9 @@ pub trait ModelRunner: Send {
     fn model_name(&self) -> String {
         "unknown".to_string()
     }
+
+    /// 5. Feedback (Optional)
+    /// Called when new tokens are finalized/accepted into the session.
+    /// Used by Cacheback and other online-learning speculative methods.
+    fn update_cache(&self, _tokens: &[u32]) {}
 }
