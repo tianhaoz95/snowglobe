@@ -34,7 +34,7 @@ pub enum VocabLinear<B: Backend> {
 impl<B: Backend> VocabLinear<B> {
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
         match self {
-            Self::Normal(e) => input.matmul(e.weight.val().transpose().unsqueeze()),
+            Self::Normal(e) => e.forward(input),
             Self::Sharded(e) => e.forward(input),
         }
     }
@@ -234,7 +234,7 @@ impl<B: Backend> LargeVocabLinear<B> {
         let outs: Vec<_> = self
             .parts
             .iter()
-            .map(|part| input.clone().matmul(part.weight.val().transpose().unsqueeze()))
+            .map(|part| part.forward(input.clone()))
             .collect();
         Tensor::cat(outs, 2)
     }

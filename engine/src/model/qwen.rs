@@ -100,7 +100,6 @@ pub struct QwenConfig {
     pub vocab_shards: usize,
 
     // Qwen3 / Advanced features
-    pub model_type: Option<String>,
     pub head_dim: Option<usize>,
     pub use_qk_norm: Option<bool>,
 }
@@ -156,13 +155,7 @@ impl QwenConfig {
             layer_params += self.hidden_size; // mlp_norm
             
             // Optional QK Norms
-            let use_qk_norm = self.use_qk_norm.unwrap_or_else(|| {
-                if let Some(model_type) = &self.model_type {
-                    model_type == "qwen3"
-                } else {
-                    false
-                }
-            });
+            let use_qk_norm = self.use_qk_norm.unwrap_or(true);
             if use_qk_norm {
                 layer_params += 2 * head_dim;
             }
@@ -214,13 +207,8 @@ impl QwenConfig {
         let qkv_bias = self.qkv_bias;
         let head_dim = self.head_dim.unwrap_or(hidden_size / num_attention_heads);
 
-        let use_qk_norm = self.use_qk_norm.unwrap_or_else(|| {
-            if let Some(model_type) = &self.model_type {
-                model_type == "qwen3"
-            } else {
-                false
-            }
-        });
+        let use_qk_norm = self.use_qk_norm.unwrap_or(true);
+        let qkv_bias = self.qkv_bias;
 
         let embedding = if self.vocab_shards > 1 {
             VocabEmbedding::Sharded(LargeVocabEmbedding::init(
@@ -304,7 +292,6 @@ impl Default for QwenConfig {
             hidden_act: "silu".to_string(),
             dropout: 0.0,
             vocab_shards: 1,
-            model_type: None,
             head_dim: None,
             use_qk_norm: None,
         }
@@ -914,13 +901,13 @@ mod tests {
         let device = <NdArray as Backend>::Device::default();
         let config = QwenConfig {
             vocab_size: 151936,
-            hidden_size: 1024,
+            hidden_size: 896,
             num_hidden_layers: 2,
-            num_attention_heads: 16,
-            num_key_value_heads: 8,
-            intermediate_size: 3072,
+            num_attention_heads: 14,
+            num_key_value_heads: 2,
+            intermediate_size: 4864,
             rope_theta: 1000000.0,
-            max_position_embeddings: 40960,
+            max_position_embeddings: 32768,
             rms_norm_eps: 1e-6,
             use_cache: true,
             tied_word_embeddings: true,
@@ -928,8 +915,7 @@ mod tests {
             hidden_act: "silu".to_string(),
             dropout: 0.0,
             vocab_shards: 1,
-            model_type: Some("qwen3".to_string()),
-            head_dim: Some(128),
+            head_dim: Some(64),
             use_qk_norm: Some(true),
         };
 
@@ -938,9 +924,34 @@ mod tests {
 
         // Check attention params
         let layer0 = &model.layers[0];
-        let head_dim = 896 / 14; 
-        assert_eq!(layer0.self_attn.head_dim, head_dim);
+        assert_eq!(layer0.self_attn.head_dim, 64);
         assert!(layer0.self_attn.q_norm.is_some());
         assert!(layer0.self_attn.k_norm.is_some());
+    }
+
+    #[test]
+    fn test_qwen_forward_basic() {
+        let device = <NdArray as Backend>::Device::default();
+        let config = QwenConfig::default(); // Uses 896 hidden, 24 layers, etc.
+        
+        // Small model for testing
+        let mut small_config = config.clone();
+        small_config.num_hidden_layers = 2;
+        small_config.use_qk_norm = Some(false); // Qwen 2.5 0.5B doesn't have it
+        
+        let model: Qwen<NdArray> = small_config.init(&device);
+        
+        let input = Tensor::<NdArray, 2, Int>::from_data(
+            TensorData::new(vec![100i32], Shape::new([1, 1])),
+            &device,
+        );
+        
+        let (logits, _cache) = Model::forward(&model, input, None, 0);
+        
+        assert_eq!(logits.dims(), [1, 1, 151936]);
+        let data = logits.into_data();
+        let first_logit = data.as_slice::<f32>().unwrap()[0];
+        assert!(!first_logit.is_nan());
+        assert!(!first_logit.is_infinite());
     }
 }
