@@ -1,3 +1,9 @@
 [submodule "third_party/executorch"]
 	path = third_party/executorch
 	url = https://github.com/pytorch/executorch.git
+[submodule "third_party/llama.cpp"]
+	path = third_party/llama.cpp
+	url = https://github.com/ggerganov/llama.cpp
+[submodule "third_party/mini-sglang"]
+	path = third_party/mini-sglang
+	url = https://github.com/sgl-project/mini-sglang
