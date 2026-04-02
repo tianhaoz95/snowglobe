@@ -8,19 +8,14 @@ pub fn apply_rotary_pos_emb<B: Backend>(
     cos_cached: &Tensor<B, 4>,
     offset: usize,
 ) -> (Tensor<B, 4>, Tensor<B, 4>) {
-    let [batch_size, num_heads, seq_len, head_dim] = query.dims();
+    let [_batch_size, _num_heads, seq_len, head_dim] = query.dims();
 
     // 1. Implementation of "Rotate Half"
     let rotate_half = |x: Tensor<B, 4>| {
-        let x1 = x
-            .clone()
-            .slice([0..batch_size, 0..num_heads, 0..seq_len, 0..head_dim / 2]);
-        let x2 = x.slice([
-            0..batch_size,
-            0..num_heads,
-            0..seq_len,
-            head_dim / 2..head_dim,
-        ]);
+        let [b, h, s, d] = x.dims();
+        let half = d / 2;
+        let x1 = x.clone().slice([0..b, 0..h, 0..s, 0..half]);
+        let x2 = x.slice([0..b, 0..h, 0..s, half..d]);
         Tensor::cat(vec![x2.neg(), x1], 3)
     };
 
@@ -43,7 +38,7 @@ pub fn apply_rotary_pos_emb<B: Backend>(
 }
 
 /// Creates cached sinusoidal and cosinusoidal values for Rotary Positional Embeddings (RoPE).
-/// Optimized for the "Rotate-Half" strategy used by Qwen2.5.
+/// Optimized for the "Rotate-Half" strategy.
 pub fn create_sin_cos_cache<B: Backend>(
     head_dim: usize,
     max_position_embeddings: usize,
@@ -51,11 +46,9 @@ pub fn create_sin_cos_cache<B: Backend>(
     device: &B::Device,
 ) -> (Tensor<B, 4>, Tensor<B, 4>) {
     // 1. Generate the inverse frequencies for HALF the head dimension
-    // Formula: theta_i = 10000^(-2i/d)
     let half_dim = head_dim / 2;
-    let inv_freq: Vec<f32> = (0..head_dim)
-        .step_by(2)
-        .map(|i| 1.0 / (rope_theta.powf(i as f64 / head_dim as f64) as f32))
+    let inv_freq: Vec<f32> = (0..half_dim)
+        .map(|i| 1.0 / (rope_theta.powf((2 * i) as f64 / head_dim as f64) as f32))
         .collect();
 
     // Convert to tensor [1, half_dim]

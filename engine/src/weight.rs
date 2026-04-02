@@ -130,7 +130,7 @@ pub fn load_qwen_record<B: Backend>(
             &mut tensors,
             &format!("{}.self_attn.q_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
         if config.qkv_bias {
             layer.self_attn.q_proj.bias = Some(load_tensor_1d(
@@ -144,7 +144,7 @@ pub fn load_qwen_record<B: Backend>(
             &mut tensors,
             &format!("{}.self_attn.k_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
         if config.qkv_bias {
             layer.self_attn.k_proj.bias = Some(load_tensor_1d(
@@ -158,7 +158,7 @@ pub fn load_qwen_record<B: Backend>(
             &mut tensors,
             &format!("{}.self_attn.v_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
         if config.qkv_bias {
             layer.self_attn.v_proj.bias = Some(load_tensor_1d(
@@ -172,7 +172,7 @@ pub fn load_qwen_record<B: Backend>(
             &mut tensors,
             &format!("{}.self_attn.o_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
 
         if let (Some(q_norm), Some(k_norm)) =
@@ -194,19 +194,19 @@ pub fn load_qwen_record<B: Backend>(
             &mut tensors,
             &format!("{}.mlp.gate_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
         layer.mlp.up_proj.weight = load_tensor_2d(
             &mut tensors,
             &format!("{}.mlp.up_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
         layer.mlp.down_proj.weight = load_tensor_2d(
             &mut tensors,
             &format!("{}.mlp.down_proj.weight", layer_path),
             device,
-            true,
+            false,
         );
     }
 
@@ -220,11 +220,11 @@ pub fn load_qwen_record<B: Backend>(
                     config.hidden_size,
                     config.vocab_size,
                     device,
-                    true,
+                    false,
                 );
             }
             VocabLinearRecord::Normal(r) => {
-                r.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, true);
+                r.weight = load_tensor_2d(&mut tensors, "lm_head.weight", device, false);
             }
         }
     } else {
@@ -233,7 +233,7 @@ pub fn load_qwen_record<B: Backend>(
                 LargeVocabLinear::tie_weights(&mut *r, &*e);
             }
             (VocabLinearRecord::Normal(r), VocabEmbeddingRecord::Normal(e)) => {
-                r.weight = Param::from_tensor(e.weight.val().transpose());
+                r.weight = Param::from_tensor(e.weight.val());
             }
             _ => panic!("Record variant mismatch for tied weights"),
         }

@@ -211,7 +211,7 @@ impl QwenConfig {
                     VocabLinear::Sharded(LargeVocabLinear::from_embedding(e))
                 }
                 VocabEmbedding::Normal(e) => VocabLinear::Normal(Linear {
-                    weight: Param::from_tensor(e.weight.clone().val().transpose()),
+                    weight: Param::from_tensor(e.weight.clone().val()),
                     bias: None,
                 }),
             }
@@ -669,9 +669,9 @@ impl<B: Backend> QwenAttention<B> {
     ) -> (Tensor<B, 3>, KVCache<B>) {
         let [batch_size, seq_len, _hidden_size] = query.dims();
 
-        let q = self.q_proj.forward(query); // [batch_size, seq_len, num_attention_heads * head_dim]
-        let k = self.k_proj.forward(key); // [batch_size, seq_len, num_key_value_heads * head_dim]
-        let v = self.v_proj.forward(value); // [batch_size, seq_len, num_key_value_heads * head_dim]
+        let q = query.matmul(self.q_proj.weight.val().transpose().unsqueeze());
+        let k = key.matmul(self.k_proj.weight.val().transpose().unsqueeze());
+        let v = value.matmul(self.v_proj.weight.val().transpose().unsqueeze());
 
         let mut q_reshaped = q
             .reshape([batch_size, seq_len, self.num_attention_heads, self.head_dim])
@@ -790,7 +790,7 @@ impl<B: Backend> QwenAttention<B> {
             self.num_attention_heads * self.head_dim,
         ]); // [batch_size, seq_len, hidden_size]
 
-        (self.o_proj.forward(attn_output), new_cache)
+        (attn_output.matmul(self.o_proj.weight.val().transpose().unsqueeze()), new_cache)
     }
 }
 
@@ -840,12 +840,12 @@ pub struct QwenMLP<B: Backend> {
 
 impl<B: Backend> QwenMLP<B> {
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let gate = self.gate_proj.forward(input.clone());
-        let up = self.up_proj.forward(input);
+        let gate = input.clone().matmul(self.gate_proj.weight.val().transpose().unsqueeze());
+        let up = input.matmul(self.up_proj.weight.val().transpose().unsqueeze());
 
         let activated_gate = burn::tensor::activation::silu(gate);
         let intermediate = activated_gate.mul(up);
-        self.down_proj.forward(intermediate)
+        intermediate.matmul(self.down_proj.weight.val().transpose().unsqueeze())
     }
 }
 
