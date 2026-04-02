@@ -791,6 +791,8 @@ where
         is_prefill = false;
         
         let (seq_len, vocab_size) = view.shape;
+        session_state.last_accepted_count = seq_len;
+        
         if seq_len == 0 {
             return Err("No logits returned".to_string());
         }

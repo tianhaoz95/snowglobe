@@ -545,10 +545,8 @@ class MyAppState extends State<MyApp> {
         }
 
         final accepted = await SnowglobeOpenAI.getLastAcceptedCount(sessionId: _sessionId!);
-        if (accepted > 0) {
-          totalAccepted += accepted;
-          iterations++;
-        }
+        totalAccepted += (accepted > 0 ? accepted : 1);
+        iterations++;
 
         setState(() {
           _response += token;
