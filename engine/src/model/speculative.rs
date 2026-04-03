@@ -356,8 +356,6 @@ impl ModelRunner for SpeculativeRunner {
 
         if accepted_count > 1 {
             eprintln!("[SPEC] Accepted {}/{} tokens", accepted_count, draft_tokens.len() + 1);
-            // Feedback: Update cache with matched draft tokens
-            self.update_cache(&draft_tokens[0..accepted_count - 1]);
         }
 
         // 6. Return logits for accepted tokens

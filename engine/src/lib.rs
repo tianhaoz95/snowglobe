@@ -828,10 +828,13 @@ where
             // 2. Append this token to history
             session_state.engine_session.tokens.push(next_token_id);
             
-            // 3. Get text after this token
+            // 3. Update speculative cache with the newly accepted token
+            model.update_cache(&session_state.engine_session.tokens);
+            
+            // 4. Get text after this token
             let full_text = tokenizer.decode(&session_state.engine_session.tokens, true).unwrap_or_default();
             
-            // 4. Send delta to sink
+            // 5. Send delta to sink
             if full_text.len() > prev_text.len() {
                 let new_text = &full_text[prev_text.len()..];
                 if !sink.add(new_text.to_string()) {
