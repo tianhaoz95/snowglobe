@@ -820,13 +820,16 @@ where
                 break 'gen_loop;
             }
 
+            // More robust decoding for streaming: decode full sequence and take delta
+            let prev_text = tokenizer.decode(&session_state.tokens, true).unwrap_or_default();
             session_state.tokens.push(next_token_id);
             tokens_generated += 1;
             input_tokens = vec![next_token_id];
 
-            let new_text = tokenizer.decode(&session_state.tokens[session_state.tokens.len()-1..], true).unwrap_or_default();
-            if !new_text.is_empty() {
-                if !sink.add(new_text) {
+            let full_text = tokenizer.decode(&session_state.tokens, true).unwrap_or_default();
+            if full_text.len() > prev_text.len() {
+                let new_text = &full_text[prev_text.len()..];
+                if !sink.add(new_text.to_string()) {
                     break 'gen_loop;
                 }
             }

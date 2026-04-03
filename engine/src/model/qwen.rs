@@ -405,11 +405,20 @@ impl<B: Backend> ModelRunner for BurnRunner<B> {
         session.current_kv_len += num_new;
 
         let [_, seq_len, vocab_size] = output.dims();
-        let flat_data = output.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))?;
+        
+        // In Prefill mode, we usually only want the last token's logits to start generation.
+        // This prevents the engine from appending "garbage" (predictions for each prompt token)
+        // during the first iteration of the generation loop.
+        let (num_output_rows, flat_data) = if _mode == ExecutionMode::Prefill {
+            let last_row = output.slice([0..1, seq_len-1..seq_len, 0..vocab_size]);
+            (1, last_row.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))?)
+        } else {
+            (seq_len, output.to_data().into_vec::<f32>().map_err(|e| format!("{:?}", e))?)
+        };
 
         Ok(LogitView {
             data: flat_data,
-            shape: (seq_len, vocab_size),
+            shape: (num_output_rows, vocab_size),
         })
     }
 

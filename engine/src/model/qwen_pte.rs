@@ -226,9 +226,16 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
 
         session.current_kv_len += num_new;
 
+        let (num_output_rows, final_logits) = if _mode == ExecutionMode::Prefill {
+            let start = (num_new - 1) * vocab_size;
+            (1, logits_vec[start..start + vocab_size].to_vec())
+        } else {
+            (num_new, logits_vec)
+        };
+
         Ok(LogitView {
-            data: logits_vec,
-            shape: (num_new, vocab_size),
+            data: final_logits,
+            shape: (num_output_rows, vocab_size),
         })
     }
 

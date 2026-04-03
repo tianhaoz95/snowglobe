@@ -544,27 +544,30 @@ class MyAppState extends State<MyApp> {
           _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
         }
 
-        final accepted = await SnowglobeOpenAI.getLastAcceptedCount(sessionId: _sessionId!);
-        totalAccepted += (accepted > 0 ? accepted : 1);
+        // Increment token count by 1 for each token yielded by the stream.
+        // Even with speculative decoding, tokens are yielded individually.
+        _tokenCount += 1;
         iterations++;
 
         setState(() {
           _response += token;
-          _tokenCount += (accepted > 0 ? accepted : 1);
           _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
-          if (iterations > 0) {
-            _avgAcceptedTokens = totalAccepted / iterations;
-          }
 
           // Generation speed calculation (tok/s after prefill)
           if (_prefillTimeSeconds != null) {
             final generationSeconds = _elapsedSeconds - _prefillTimeSeconds!;
             if (generationSeconds > 0) {
               _tokensPerSecond = _tokenCount / generationSeconds;
-            } else {
-              _tokensPerSecond = 0;
             }
           }
+        });
+      }
+      
+      // Update average accepted count once at the end or more efficiently
+      final accepted = await SnowglobeOpenAI.getLastAcceptedCount(sessionId: _sessionId!);
+      if (mounted) {
+        setState(() {
+          _avgAcceptedTokens = accepted.toDouble();
         });
       }
       stopwatch.stop();
