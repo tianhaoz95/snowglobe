@@ -240,6 +240,9 @@ impl<B: Backend> ModelRunner for QwenPte<B> {
     }
 
     fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String> {
+        if len < session.tokens.len() {
+            session.tokens.truncate(len);
+        }
         session.current_kv_len = len;
         Ok(())
     }

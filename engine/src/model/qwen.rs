@@ -429,6 +429,9 @@ impl<B: Backend> ModelRunner for BurnRunner<B> {
                 cache.key = cache.key.clone().slice([0..1, 0..cache.key.dims()[1], 0..len, 0..cache.key.dims()[3]]);
                 cache.value = cache.value.clone().slice([0..1, 0..cache.value.dims()[1], 0..len, 0..cache.value.dims()[3]]);
             }
+            if len < session.tokens.len() {
+                session.tokens.truncate(len);
+            }
             session.current_kv_len = len;
         }
         Ok(())

@@ -421,7 +421,6 @@ pub static GLOBAL_MODEL: RwLock<Option<LoadedModel<Backend>>> = RwLock::new(None
 
 pub struct SessionState {
     pub engine_session: EngineSession,
-    pub tokens: Vec<u32>,
     pub last_accepted_count: usize,
 }
 
@@ -692,9 +691,11 @@ pub fn init_session() -> String {
     token_ids.push(im_end_id);
     token_ids.push(newline_id);
 
+    let mut engine_session = EngineSession::new(1);
+    engine_session.tokens = token_ids;
+
     let state = SessionState {
-        engine_session: EngineSession::new(1),
-        tokens: token_ids,
+        engine_session,
         last_accepted_count: 0,
     };
 
@@ -760,21 +761,21 @@ where
         Err(e) => return Err(format!("Error encoding prompt: {}", e)),
     };
 
-    session_state.tokens.push(im_start_id);
+    session_state.engine_session.tokens.push(im_start_id);
     match tokenizer.encode("user", false) {
-        Ok(t) => session_state.tokens.extend(t.get_ids()),
+        Ok(t) => session_state.engine_session.tokens.extend(t.get_ids()),
         Err(e) => return Err(format!("Error encoding 'user' tag: {}", e)),
     };
-    session_state.tokens.push(newline_id);
-    session_state.tokens.extend(user_tokens);
-    session_state.tokens.push(im_end_id);
-    session_state.tokens.push(newline_id);
-    session_state.tokens.push(im_start_id);
+    session_state.engine_session.tokens.push(newline_id);
+    session_state.engine_session.tokens.extend(user_tokens);
+    session_state.engine_session.tokens.push(im_end_id);
+    session_state.engine_session.tokens.push(newline_id);
+    session_state.engine_session.tokens.push(im_start_id);
     match tokenizer.encode("assistant", false) {
-        Ok(t) => session_state.tokens.extend(t.get_ids()),
+        Ok(t) => session_state.engine_session.tokens.extend(t.get_ids()),
         Err(e) => return Err(format!("Error encoding 'assistant' tag: {}", e)),
     };
-    session_state.tokens.push(newline_id);
+    session_state.engine_session.tokens.push(newline_id);
 
     let generation_limit = if max_gen_len > 0 {
         max_gen_len
@@ -784,7 +785,7 @@ where
 
     let mut tokens_generated = 0;
     let mut is_prefill = true;
-    let mut input_tokens = session_state.tokens.clone();
+    let mut input_tokens = session_state.engine_session.tokens.clone();
 
     'gen_loop: while tokens_generated < generation_limit {
         let mode = if is_prefill { ExecutionMode::Prefill } else { ExecutionMode::Decode };
@@ -798,7 +799,7 @@ where
         };
         
         if is_prefill {
-            model.update_cache(&session_state.tokens);
+            model.update_cache(&session_state.engine_session.tokens);
         }
         is_prefill = false;
         
@@ -820,16 +821,17 @@ where
                 break 'gen_loop;
             }
 
-            // More robust decoding for streaming: decode full sequence and take delta
-            let prev_text = tokenizer.decode(&session_state.tokens, true).unwrap_or_default();
-            session_state.tokens.push(next_token_id);
-            tokens_generated += 1;
-            input_tokens = vec![next_token_id];
+            // Standard streaming logic:
+            // 1. Get text before this token
+            let prev_text = tokenizer.decode(&session_state.engine_session.tokens, true).unwrap_or_default();
             
-            // Update speculative cache with the newly accepted token
-            model.update_cache(&session_state.tokens);
-
-            let full_text = tokenizer.decode(&session_state.tokens, true).unwrap_or_default();
+            // 2. Append this token to history
+            session_state.engine_session.tokens.push(next_token_id);
+            
+            // 3. Get text after this token
+            let full_text = tokenizer.decode(&session_state.engine_session.tokens, true).unwrap_or_default();
+            
+            // 4. Send delta to sink
             if full_text.len() > prev_text.len() {
                 let new_text = &full_text[prev_text.len()..];
                 if !sink.add(new_text.to_string()) {
@@ -837,16 +839,14 @@ where
                 }
             }
 
+            tokens_generated += 1;
+            input_tokens = vec![next_token_id];
+
             if tokens_generated >= generation_limit {
                 break 'gen_loop;
             }
         }
-        
-        model.update_cache(&session_state.tokens);
     }
-    model.update_cache(&session_state.tokens);
-    session_state.tokens.push(im_end_id);
-    session_state.tokens.push(newline_id);
 
     Ok(())
 }

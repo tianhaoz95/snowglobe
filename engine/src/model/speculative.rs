@@ -291,13 +291,18 @@ impl ModelRunner for SpeculativeRunner {
         // 1. Generate draft tokens using Cacheback
         let draft_tokens = {
             let mut cache = self.dynamic_cache.lock();
-            let mut draft = cache.draft(input_tokens, self.k);
+            
+            // Context for drafting is session history + current input
+            let mut context = session.tokens.clone();
+            context.extend_from_slice(input_tokens);
+            
+            let mut draft = cache.draft(&context, self.k);
             
             // If dynamic cache didn't provide enough tokens, try frozen cache
             if draft.len() < self.k {
                 if let Some(frozen) = &self.frozen_cache {
                     // Start drafting from where dynamic cache left off
-                    let mut temp_seq = input_tokens.to_vec();
+                    let mut temp_seq = context;
                     temp_seq.extend(&draft);
                     let frozen_draft = frozen.draft(&temp_seq, self.k - draft.len());
                     draft.extend(frozen_draft);
@@ -351,13 +356,11 @@ impl ModelRunner for SpeculativeRunner {
 
         if accepted_count > 1 {
             eprintln!("[SPEC] Accepted {}/{} tokens", accepted_count, draft_tokens.len() + 1);
+            // Feedback: Update cache with matched draft tokens
+            self.update_cache(&draft_tokens[0..accepted_count - 1]);
         }
 
         // 6. Return logits for accepted tokens
-        // We just return the original logits from the target.
-        // The first (accepted_count - 1) rows will sample to the draft tokens
-        // (because we verified them with greedy sampling), and the last row
-        // provides the logit for the next token.
         let final_data = target_result.data[0..accepted_count * vocab_size].to_vec();
 
         Ok(LogitView {
@@ -367,6 +370,9 @@ impl ModelRunner for SpeculativeRunner {
     }
 
     fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String> {
+        if len < session.tokens.len() {
+            session.tokens.truncate(len);
+        }
         self.target.truncate_cache(session, len)
     }
 

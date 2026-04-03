@@ -22,6 +22,8 @@ pub struct EngineSession {
     pub request_id: RequestId,
     /// Total tokens currently processed and stored in the hardware KV cache.
     pub current_kv_len: usize,
+    /// Full history of tokens accepted in this session.
+    pub tokens: Vec<u32>,
     /// Backend-specific, opaque state pointer (e.g., llama_context*, Burn Tensors).
     pub backend_state: Option<Box<dyn Any + Send + Sync>>,
     pub metadata: HashMap<String, String>,
@@ -32,6 +34,7 @@ impl EngineSession {
         Self {
             request_id,
             current_kv_len: 0,
+            tokens: Vec::new(),
             backend_state: None,
             metadata: HashMap::new(),
         }

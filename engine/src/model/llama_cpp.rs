@@ -156,6 +156,9 @@ impl ModelRunner for LlamaCppRunner {
             ctx.clear_kv_cache_seq(None, Some(len as u32), None)
                 .map_err(|e| format!("Failed to truncate KV cache: {:?}", e))?;
             
+            if len < session.tokens.len() {
+                session.tokens.truncate(len);
+            }
             session.current_kv_len = len;
         }
         Ok(())
