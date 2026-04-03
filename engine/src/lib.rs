@@ -825,6 +825,9 @@ where
             session_state.tokens.push(next_token_id);
             tokens_generated += 1;
             input_tokens = vec![next_token_id];
+            
+            // Update speculative cache with the newly accepted token
+            model.update_cache(&session_state.tokens);
 
             let full_text = tokenizer.decode(&session_state.tokens, true).unwrap_or_default();
             if full_text.len() > prev_text.len() {

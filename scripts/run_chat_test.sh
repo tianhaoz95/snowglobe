@@ -64,8 +64,8 @@ fi
 
 if [ -z "$DEVICE_ID" ]; then
     echo "No Android device found. Defaulting to first available Flutter device."
-    flutter test integration_test/chat_test.dart
+    flutter test integration_test/chat_test.dart --flavor highPerf
 else
     echo "Running integration test on device $DEVICE_ID..."
-    flutter test integration_test/chat_test.dart -d "$DEVICE_ID"
+    flutter test integration_test/chat_test.dart -d "$DEVICE_ID" --flavor highPerf
 fi

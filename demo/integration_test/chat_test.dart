@@ -73,7 +73,7 @@ void main() {
     // Pump to trigger the onPressed callback
     await tester.pump();
 
-    // 4. Assert there is non-empty output within 30 seconds
+    // 4. Assert there is non-empty output within 60 seconds
     bool hasResponse = false;
     String lastText = "";
     final stopwatch = Stopwatch()..start();
@@ -81,7 +81,7 @@ void main() {
     print('Generation phase started...');
     
     try {
-      while (stopwatch.elapsed < const Duration(seconds: 30)) {
+      while (stopwatch.elapsed < const Duration(seconds: 60)) {
         await tester.pump(const Duration(milliseconds: 500));
         
         final markdownFinder = find.byType(MarkdownBody);

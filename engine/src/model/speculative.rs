@@ -17,7 +17,7 @@ pub struct CachebackConfig {
 impl Default for CachebackConfig {
     fn default() -> Self {
         Self {
-            leader_len: 1,
+            leader_len: 2,
             follower_len: 3,
             capacity: 2048,
             follower_capacity: 4,
@@ -354,19 +354,11 @@ impl ModelRunner for SpeculativeRunner {
         }
 
         // 6. Return logits for accepted tokens
-        let mut final_data = Vec::with_capacity(accepted_count * vocab_size);
-        for i in 0..accepted_count {
-            let src_logits = &target_result.data[i * vocab_size .. (i+1) * vocab_size];
-            if i < accepted_count - 1 {
-                // Spike the logit for the already accepted draft token
-                let mut spiked = vec![-1000.0f32; vocab_size];
-                spiked[draft_tokens[i] as usize] = 1000.0f32;
-                final_data.extend(spiked);
-            } else {
-                // Last one is the new logit to sample from
-                final_data.extend_from_slice(src_logits);
-            }
-        }
+        // We just return the original logits from the target.
+        // The first (accepted_count - 1) rows will sample to the draft tokens
+        // (because we verified them with greedy sampling), and the last row
+        // provides the logit for the next token.
+        let final_data = target_result.data[0..accepted_count * vocab_size].to_vec();
 
         Ok(LogitView {
             data: final_data,
