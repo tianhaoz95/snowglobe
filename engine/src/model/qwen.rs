@@ -368,9 +368,6 @@ impl<B: Backend> ModelRunner for BurnRunner<B> {
         input_tokens: &[u32],
         _mode: ExecutionMode,
     ) -> Result<LogitView, String> {
-        println!("EXECUTE called with offset {}, num_tokens {}", session.current_kv_len, input_tokens.len());
-        println!("Input tokens (first 5): {:?}", &input_tokens[..std::cmp::min(5, input_tokens.len())]);
-        
         let device = self.model.rms_norm.gamma.val().device();
         let num_new = input_tokens.len();
 

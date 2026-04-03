@@ -71,6 +71,16 @@ impl EngineVariant {
             EngineVariant::Speculative(m) => m.model_name(),
         }
     }
+
+    pub fn update_cache(&self, tokens: &[u32]) {
+        match self {
+            EngineVariant::Burn(m) => m.update_cache(tokens),
+            EngineVariant::ExecuTorch(m) => m.update_cache(tokens),
+            #[cfg(feature = "llamacpp")]
+            EngineVariant::LlamaCpp(m) => m.update_cache(tokens),
+            EngineVariant::Speculative(m) => m.update_cache(tokens),
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

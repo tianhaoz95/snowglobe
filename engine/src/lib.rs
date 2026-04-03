@@ -24,7 +24,7 @@ use crate::layer::large_vocab::CHUNK_SIZE;
 pub use crate::model::{
     InitConfig, KVCache, LoadedModel, Qwen, QwenConfig, QwenPte, EngineVariant, BackendType
 };
-pub use crate::model::runner::{EngineSession, ModelRunner};
+pub use crate::model::runner::{EngineSession, ModelRunner, ExecutionMode, LogitView, BackendInfo};
 use crate::weight::load_qwen_record;
 use burn::prelude::*;
 use dashmap::DashMap;
@@ -113,23 +113,15 @@ fn forward_model(
     session_state: &mut EngineSession,
     tokens_to_process: &[u32],
     mode: crate::model::runner::ExecutionMode,
-) -> Result<Vec<f32>, String> {
+) -> Result<LogitView, String> {
     let model = model_arc.lock();
-    let view = match &*model {
+    match &*model {
         EngineVariant::Burn(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
         EngineVariant::ExecuTorch(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
         #[cfg(feature = "llamacpp")]
         EngineVariant::LlamaCpp(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
         EngineVariant::Speculative(m) => m.execute(session_state, tokens_to_process, mode).map_err(|e| e.to_string()),
-    }?;
-    
-    let (seq_len, vocab_size) = view.shape;
-    
-    if seq_len == 0 {
-        return Err("No logits returned".to_string());
     }
-    let start = (seq_len - 1) * vocab_size;
-    Ok(view.data[start..].to_vec())
 }
 
 pub async fn create_chat_completion(
@@ -191,66 +183,81 @@ pub async fn create_chat_completion(
         let mut is_prefill = true;
         let mut input_tokens = token_ids;
         
-        for _ in 0..generation_limit {
-            let num_tokens_before = tokens.len();
-
+        let mut tokens_generated = 0;
+        'gen_loop: while tokens_generated < generation_limit {
             let model_arc_clone = model_arc.clone();
             let mut session_moved = session_state;
             let current_input = input_tokens.clone();
             
             let (logits_result, session_returned) = tokio::task::spawn_blocking(move || {
-                let mode = if is_prefill { crate::model::runner::ExecutionMode::Prefill } else { crate::model::runner::ExecutionMode::Decode };
+                let mode = if is_prefill { ExecutionMode::Prefill } else { ExecutionMode::Decode };
                 let logits = forward_model(&model_arc_clone, &mut session_moved, &current_input, mode);
                 (logits, session_moved)
             }).await.map_err(|e| format!("spawn_blocking failed: {}", e))?;
             
             session_state = session_returned;
-            let logits = logits_result.map_err(|e| e)?;
+            let view: LogitView = logits_result.map_err(|e| e)?;
+            
+            if is_prefill {
+                model_arc.lock().update_cache(&tokens);
+            }
             is_prefill = false;
 
-            let next_token_id = logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i as u32)
-                .ok_or_else(|| "Error: Logits are empty".to_string())?;
-
-            if next_token_id == im_end_id {
-                break;
-            }
-
-            tokens.push(next_token_id);
-            input_tokens = vec![next_token_id];
+            let (seq_len, vocab_size) = view.shape;
             
-            let new_text = tokenizer_clone.decode(&tokens[num_tokens_before..], true).map_err(|e| e.to_string())?;
-            
-            if !new_text.is_empty() {
-                full_text.push_str(&new_text);
+            for i in 0..seq_len {
+                let start_idx = i * vocab_size;
+                let logits = &view.data[start_idx .. start_idx + vocab_size];
+                let next_token_id = logits
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a): &(usize, &f32), (_, b): &(usize, &f32)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, _)| i as u32)
+                    .ok_or_else(|| "Error: Logits are empty".to_string())?;
+
+                if next_token_id == im_end_id {
+                    break 'gen_loop;
+                }
+
+                tokens.push(next_token_id);
+                tokens_generated += 1;
+                input_tokens = vec![next_token_id];
                 
-                yield CreateChatCompletionStreamResponse {
-                    id: Uuid::new_v4().to_string(),
-                    choices: vec![ChatChoiceStream {
-                        index: 0,
-                        delta: ChatCompletionStreamResponseDelta {
-                            content: Some(new_text),
-                            role: Some(Role::Assistant),
-                            tool_calls: None,
-                            refusal: None,
-                            #[allow(deprecated)]
-                            function_call: None,
-                        },
-                        finish_reason: None,
-                        logprobs: None,
-                    }],
-                    created: 0,
-                    model: "snowglobe".to_string(),
-                    object: "chat.completion.chunk".to_string(),
-                    #[allow(deprecated)]
-                    system_fingerprint: None,
-                    service_tier: None,
-                    usage: None,
-                };
+                // Yield each token as it is added for true streaming
+                let new_text = tokenizer_clone.decode(&tokens[tokens.len()-1..], true).map_err(|e| e.to_string())?;
+                if !new_text.is_empty() {
+                    full_text.push_str(&new_text);
+                    yield CreateChatCompletionStreamResponse {
+                        id: Uuid::new_v4().to_string(),
+                        choices: vec![ChatChoiceStream {
+                            index: 0,
+                            delta: ChatCompletionStreamResponseDelta {
+                                content: Some(new_text),
+                                role: Some(Role::Assistant),
+                                tool_calls: None,
+                                refusal: None,
+                                #[allow(deprecated)]
+                                function_call: None,
+                            },
+                            finish_reason: None,
+                            logprobs: None,
+                        }],
+                        created: 0,
+                        model: "snowglobe".to_string(),
+                        object: "chat.completion.chunk".to_string(),
+                        #[allow(deprecated)]
+                        system_fingerprint: None,
+                        service_tier: None,
+                        usage: None,
+                    };
+                }
+
+                if tokens_generated >= generation_limit {
+                    break 'gen_loop;
+                }
             }
+            
+            model_arc.lock().update_cache(&tokens);
         }
 
         // After loop, check for tool calls in the full text
@@ -309,8 +316,8 @@ pub async fn create_chat_completion(
             last_id = chunk.id;
             last_model = chunk.model;
             for choice in chunk.choices {
-                if let Some(content) = choice.delta.content {
-                    full_text.push_str(&content);
+                if let Some(ref content) = choice.delta.content {
+                    full_text.push_str(content);
                 }
                 if let Some(tool_calls) = choice.delta.tool_calls {
                     let mut calls = Vec::new();
@@ -552,6 +559,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
                 Box::new(model),
                 init_config.speculate_tokens,
+                crate::model::speculative::CachebackConfig::default(),
             )))
         } else {
             EngineVariant::ExecuTorch(Box::new(model))
@@ -581,6 +589,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
                 EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
                     model,
                     init_config.speculate_tokens,
+                    crate::model::speculative::CachebackConfig::default(),
                 )))
             } else {
                 EngineVariant::LlamaCpp(model)
@@ -633,6 +642,7 @@ async fn init_model(cache_dir: String, init_config: InitConfig, device: Device) 
             EngineVariant::Speculative(Box::new(crate::model::speculative::SpeculativeRunner::new(
                 Box::new(crate::model::qwen::BurnRunner::new(model)),
                 init_config.speculate_tokens,
+                crate::model::speculative::CachebackConfig::default(),
             )))
         } else {
             EngineVariant::Burn(Box::new(crate::model::qwen::BurnRunner::new(model)))
@@ -772,13 +782,12 @@ where
         init_config.max_gen_len as u32
     };
 
+    let mut tokens_generated = 0;
     let mut is_prefill = true;
     let mut input_tokens = session_state.tokens.clone();
 
-    for _ in 0..generation_limit {
-        let num_tokens_before = session_state.tokens.len();
-        
-        let mode = if is_prefill { crate::model::runner::ExecutionMode::Prefill } else { crate::model::runner::ExecutionMode::Decode };
+    'gen_loop: while tokens_generated < generation_limit {
+        let mode = if is_prefill { ExecutionMode::Prefill } else { ExecutionMode::Decode };
         
         let view = match &*model {
             EngineVariant::Burn(m) => m.execute(&mut session_state.engine_session, &input_tokens, mode).map_err(|e| e.to_string())?,
@@ -789,42 +798,47 @@ where
         };
         
         if is_prefill {
-            model.lock().update_cache(&session_state.tokens);
+            model.update_cache(&session_state.tokens);
         }
         is_prefill = false;
         
         let (seq_len, vocab_size) = view.shape;
         session_state.last_accepted_count = seq_len;
         
-        if seq_len == 0 {
-            return Err("No logits returned".to_string());
-        }
-        let start = (seq_len - 1) * vocab_size;
-        let logits = &view.data[start..];
+        for i in 0..seq_len {
+            let start = i * vocab_size;
+            let logits = &view.data[start..start + vocab_size];
 
-        let next_token_id = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u32)
-            .ok_or_else(|| "Error: Logits are empty".to_string())?;
+            let next_token_id = logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a): &(usize, &f32), (_, b): &(usize, &f32)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i as u32)
+                .ok_or_else(|| "Error: Logits are empty".to_string())?;
 
-        if next_token_id == im_end_id {
-            break;
-        }
+            if next_token_id == im_end_id {
+                break 'gen_loop;
+            }
 
-        session_state.tokens.push(next_token_id);
-        model.lock().update_cache(&session_state.tokens);
-        input_tokens = vec![next_token_id];
+            session_state.tokens.push(next_token_id);
+            tokens_generated += 1;
+            input_tokens = vec![next_token_id];
 
-        let new_text = tokenizer.decode(&session_state.tokens[num_tokens_before..], true).unwrap_or_default();
-        if !new_text.is_empty() {
-            if !sink.add(new_text) {
-                break;
+            let new_text = tokenizer.decode(&session_state.tokens[session_state.tokens.len()-1..], true).unwrap_or_default();
+            if !new_text.is_empty() {
+                if !sink.add(new_text) {
+                    break 'gen_loop;
+                }
+            }
+
+            if tokens_generated >= generation_limit {
+                break 'gen_loop;
             }
         }
+        
+        model.update_cache(&session_state.tokens);
     }
-    model.lock().update_cache(&session_state.tokens);
+    model.update_cache(&session_state.tokens);
     session_state.tokens.push(im_end_id);
     session_state.tokens.push(newline_id);
 
@@ -994,6 +1008,73 @@ mod tests {
         println!("Response: {}", response);
 
         assert!(response.to_lowercase().contains("beijing"));
+    }
+
+    #[tokio::test]
+    async fn benchmark_cacheback_llamacpp_speedup() {
+        let cache_dir = setup_test("./tmp/benchmark_llamacpp_spec", "gguf").await;
+        // Case 1: Repetitive prompt for speedup
+        let prompt_rep = "Repeat the word 'apple' 50 times. apple apple apple apple apple apple apple apple apple apple";
+        
+        // Case 2: Essay prompt for truncation investigation
+        let prompt_essay = "Write a short essay about Large Language Models. Focus on their architecture and impact.";
+        
+        let max_tokens = 256;
+        let iterations = 1;
+
+        println!("\n=== LLAMACPP CACHEBACK BENCHMARK ===");
+
+        // 1. Baseline (No Speculation) - Essay
+        init(
+            cache_dir.clone(),
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: max_tokens as usize,
+                use_executorch: false,
+                backend: BackendType::LlamaCpp,
+                hardware: HardwareTarget::Gpu,
+                speculate_tokens: 0,
+            },
+        ).await;
+
+        println!("Running Baseline (Essay)...");
+        let session_id = init_session();
+        let sink = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt_essay, max_tokens, &sink).unwrap();
+        println!("Baseline Response length: {} tokens", sink.0.lock().split_whitespace().count());
+
+        // 2. Cacheback (Speculation enabled) - Essay
+        init(
+            cache_dir,
+            InitConfig {
+                vocab_shards: 1,
+                max_gen_len: max_tokens as usize,
+                use_executorch: false,
+                backend: BackendType::LlamaCpp,
+                hardware: HardwareTarget::Gpu,
+                speculate_tokens: 8,
+            },
+        ).await;
+
+        println!("\nRunning Cacheback (Essay)...");
+        let session_id = init_session();
+        let sink = TestSink(Mutex::new(String::new()));
+        generate_response(&session_id, prompt_essay, max_tokens, &sink).unwrap();
+        println!("Cacheback Response length: {} tokens", sink.0.lock().split_whitespace().count());
+        
+        println!("\n=== SPEEDUP TEST (Repetitive) ===");
+        // Warm up with repetitive prompt
+        println!("Warming up Cacheback...");
+        for _ in 0..2 {
+            let warmup_session = init_session();
+            generate_response(&warmup_session, prompt_rep, max_tokens, &TestSink(Mutex::new(String::new()))).unwrap();
+        }
+
+        let start = std::time::Instant::now();
+        let session_id = init_session();
+        generate_response(&session_id, prompt_rep, max_tokens, &TestSink(Mutex::new(String::new()))).unwrap();
+        let elapsed = start.elapsed();
+        println!("Speculative Iteration (Repetitive): {:?}", elapsed);
     }
 
     #[tokio::test]
@@ -1387,4 +1468,4 @@ mod tests {
         assert_eq!(tool_calls[0].function.name, "get_weather");
         assert!(cleaned.contains("Certainly!"));
     }
-    }
+}

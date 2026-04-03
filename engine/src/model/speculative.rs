@@ -4,6 +4,26 @@ use std::path::Path;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use parking_lot::Mutex;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachebackConfig {
+    pub leader_len: usize,
+    pub follower_len: usize,
+    pub capacity: usize,
+    pub follower_capacity: usize,
+}
+
+impl Default for CachebackConfig {
+    fn default() -> Self {
+        Self {
+            leader_len: 1,
+            follower_len: 3,
+            capacity: 2048,
+            follower_capacity: 4,
+        }
+    }
+}
 
 pub struct CacheTable {
     // Maps a leader (LL tokens) to a list of followers (FL tokens)
@@ -12,30 +32,40 @@ pub struct CacheTable {
     entries: LruCache<Vec<u32>, Vec<Vec<u32>>>,
     leader_len: usize,
     follower_len: usize,
+    follower_capacity: usize,
 }
 
 impl CacheTable {
-    pub fn new(capacity: usize, leader_len: usize, follower_len: usize) -> Self {
+    pub fn new(config: &CachebackConfig) -> Self {
         Self {
-            entries: LruCache::new(NonZeroUsize::new(capacity).unwrap()),
-            leader_len,
-            follower_len,
+            entries: LruCache::new(NonZeroUsize::new(config.capacity).unwrap()),
+            leader_len: config.leader_len,
+            follower_len: config.follower_len,
+            follower_capacity: config.follower_capacity,
         }
     }
 
     pub fn update(&mut self, tokens: &[u32]) {
-        if tokens.len() <= self.leader_len + self.follower_len {
+        if tokens.len() < self.leader_len + self.follower_len {
             return;
         }
 
-        for i in 0..tokens.len() - self.leader_len - self.follower_len + 1 {
+        // Only update with the latest window to avoid redundant work and bias.
+        let window_size = 16;
+        let start = if tokens.len() > window_size + self.leader_len + self.follower_len {
+            tokens.len() - (window_size + self.leader_len + self.follower_len)
+        } else {
+            0
+        };
+
+        for i in start..tokens.len() - self.leader_len - self.follower_len + 1 {
             let leader = tokens[i..i + self.leader_len].to_vec();
             let follower = tokens[i + self.leader_len..i + self.leader_len + self.follower_len].to_vec();
 
             if let Some(followers) = self.entries.get_mut(&leader) {
                 if !followers.contains(&follower) {
                     followers.insert(0, follower);
-                    if followers.len() > 4 {
+                    if followers.len() > self.follower_capacity {
                         followers.pop();
                     }
                 } else {
@@ -84,10 +114,59 @@ impl CacheTable {
     }
 }
 
+pub struct FrozenTable {
+    pub entries: HashMap<Vec<u32>, Vec<Vec<u32>>>,
+    pub leader_len: usize,
+    pub follower_len: usize,
+}
+
+impl FrozenTable {
+    pub fn new(leader_len: usize, follower_len: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            leader_len,
+            follower_len,
+        }
+    }
+
+    pub fn draft(&self, current_tokens: &[u32], k: usize) -> Vec<u32> {
+        let mut draft_tokens = Vec::new();
+        let mut temp_sequence = current_tokens.to_vec();
+
+        while draft_tokens.len() < k {
+            if temp_sequence.len() < self.leader_len {
+                break;
+            }
+
+            let leader = temp_sequence[temp_sequence.len() - self.leader_len..].to_vec();
+            if let Some(followers) = self.entries.get(&leader) {
+                let follower = &followers[0];
+                let mut added = 0;
+                for &t in follower {
+                    if draft_tokens.len() < k {
+                        draft_tokens.push(t);
+                        temp_sequence.push(t);
+                        added += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if added == 0 {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        draft_tokens
+    }
+}
+
 pub struct SpeculativeRunner {
     pub target: Box<dyn ModelRunner>,
     pub k: usize,
-    pub cache: Mutex<CacheTable>,
+    pub dynamic_cache: Mutex<CacheTable>,
+    pub frozen_cache: Option<FrozenTable>,
 }
 
 pub struct DummyDraftRunner {
@@ -130,12 +209,64 @@ impl ModelRunner for DummyDraftRunner {
 }
 
 impl SpeculativeRunner {
-    pub fn new(target: Box<dyn ModelRunner>, k: usize) -> Self {
+    pub fn new(target: Box<dyn ModelRunner>, k: usize, config: CachebackConfig) -> Self {
         Self { 
             target, 
             k,
-            cache: Mutex::new(CacheTable::new(2048, 1, 3)),
+            dynamic_cache: Mutex::new(CacheTable::new(&config)),
+            frozen_cache: None,
         }
+    }
+
+    pub fn load_frozen_table(&mut self, path: &Path) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| e.to_string())?;
+        
+        if data.len() < 12 {
+            return Err("Invalid frozen table file: too short".to_string());
+        }
+
+        let mut offset = 0;
+        let leader_len = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+        offset += 4;
+        let follower_len = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+        offset += 4;
+        let num_entries = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+        offset += 4;
+
+        let mut entries = HashMap::with_capacity(num_entries);
+
+        for _ in 0..num_entries {
+            let mut leader = Vec::with_capacity(leader_len);
+            for _ in 0..leader_len {
+                if offset + 4 > data.len() { return Err("Unexpected EOF".to_string()); }
+                leader.push(u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()));
+                offset += 4;
+            }
+
+            if offset + 4 > data.len() { return Err("Unexpected EOF".to_string()); }
+            let num_followers = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+            offset += 4;
+
+            let mut followers = Vec::with_capacity(num_followers);
+            for _ in 0..num_followers {
+                let mut follower = Vec::with_capacity(follower_len);
+                for _ in 0..follower_len {
+                    if offset + 4 > data.len() { return Err("Unexpected EOF".to_string()); }
+                    follower.push(u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()));
+                    offset += 4;
+                }
+                followers.push(follower);
+            }
+            entries.insert(leader, followers);
+        }
+
+        self.frozen_cache = Some(FrozenTable {
+            entries,
+            leader_len,
+            follower_len,
+        });
+
+        Ok(())
     }
 }
 
@@ -152,19 +283,27 @@ impl ModelRunner for SpeculativeRunner {
     ) -> Result<LogitView, String> {
         if mode == ExecutionMode::Prefill {
             // Update cache with prompt tokens
-            self.cache.lock().update(input_tokens);
+            self.dynamic_cache.lock().update(input_tokens);
             return self.target.execute(session, input_tokens, mode);
         }
 
         // --- Speculative Drafting ---
         // 1. Generate draft tokens using Cacheback
         let draft_tokens = {
-            let mut cache = self.cache.lock();
-            // We need the full history to draft correctly
-            // For now we assume input_tokens is just the last accepted token in Decode mode
-            // Actual history should be in session or maintained externally.
-            // If we only have input_tokens (last 1), we can only draft if LL=1.
-            cache.draft(input_tokens, self.k)
+            let mut cache = self.dynamic_cache.lock();
+            let mut draft = cache.draft(input_tokens, self.k);
+            
+            // If dynamic cache didn't provide enough tokens, try frozen cache
+            if draft.len() < self.k {
+                if let Some(frozen) = &self.frozen_cache {
+                    // Start drafting from where dynamic cache left off
+                    let mut temp_seq = input_tokens.to_vec();
+                    temp_seq.extend(&draft);
+                    let frozen_draft = frozen.draft(&temp_seq, self.k - draft.len());
+                    draft.extend(frozen_draft);
+                }
+            }
+            draft
         };
 
         if draft_tokens.is_empty() {
@@ -176,14 +315,63 @@ impl ModelRunner for SpeculativeRunner {
         combined_input.extend(&draft_tokens);
 
         // 3. Execute target model on the combined sequence
-        let result = self.target.execute(session, &combined_input, mode);
+        let initial_kv_len = session.current_kv_len;
+        let target_result = self.target.execute(
+            session, 
+            &combined_input, 
+            ExecutionMode::Verify { draft_len: draft_tokens.len() }
+        )?;
 
-        // 4. Update cache with whatever the target model produced (ideally we update after verification)
-        // But since ModelRunner::execute returns logits, the verification happens in lib.rs.
-        // This is a limitation of the current trait if we want to update cache with ACCEPTED tokens.
-        // For now, we return the LogitView. lib.rs will handle verification and truncation.
+        let (_seq_len, vocab_size) = target_result.shape;
         
-        result
+        // 4. Verification Loop
+        let mut accepted_count = 1; // Always accept the first token's logit
+        for i in 0..draft_tokens.len() {
+            // Logits for token at index i are in target_result.data[i * vocab_size .. (i+1) * vocab_size]
+            let logits = &target_result.data[i * vocab_size .. (i+1) * vocab_size];
+
+            // Sample (greedy for verification)
+            let sampled_token = logits.iter().enumerate()
+                .max_by(|(_, a): &(usize, &f32), (_, b): &(usize, &f32)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx as u32).unwrap();
+
+            if sampled_token == draft_tokens[i] {
+                accepted_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // 5. Cleanup
+        if accepted_count <= draft_tokens.len() {
+            // We rejected some tokens, need to truncate KV cache
+            let correct_kv_len = initial_kv_len + accepted_count;
+            self.target.truncate_cache(session, correct_kv_len)?;
+        }
+
+        if accepted_count > 1 {
+            eprintln!("[SPEC] Accepted {}/{} tokens", accepted_count, draft_tokens.len() + 1);
+        }
+
+        // 6. Return logits for accepted tokens
+        let mut final_data = Vec::with_capacity(accepted_count * vocab_size);
+        for i in 0..accepted_count {
+            let src_logits = &target_result.data[i * vocab_size .. (i+1) * vocab_size];
+            if i < accepted_count - 1 {
+                // Spike the logit for the already accepted draft token
+                let mut spiked = vec![-1000.0f32; vocab_size];
+                spiked[draft_tokens[i] as usize] = 1000.0f32;
+                final_data.extend(spiked);
+            } else {
+                // Last one is the new logit to sample from
+                final_data.extend_from_slice(src_logits);
+            }
+        }
+
+        Ok(LogitView {
+            data: final_data,
+            shape: (accepted_count, vocab_size),
+        })
     }
 
     fn truncate_cache(&self, session: &mut EngineSession, len: usize) -> Result<(), String> {
@@ -205,6 +393,6 @@ impl ModelRunner for SpeculativeRunner {
     }
 
     fn update_cache(&self, tokens: &[u32]) {
-        self.cache.lock().update(tokens);
+        self.dynamic_cache.lock().update(tokens);
     }
 }

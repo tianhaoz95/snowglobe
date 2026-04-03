@@ -85,6 +85,7 @@ impl ModelRunner for LlamaCppRunner {
             // Unsafe lifetime extension because the model outlives the session
             let ctx_static: llama_cpp_2::context::LlamaContext<'static> = unsafe { std::mem::transmute(ctx) };
             session.backend_state = Some(Box::new(SafeLlamaContext(ctx_static)));
+            session.current_kv_len = 0;
         }
 
         let ctx_wrapper = session.backend_state.as_mut().unwrap().downcast_mut::<SafeLlamaContext>().unwrap();
@@ -95,9 +96,14 @@ impl ModelRunner for LlamaCppRunner {
             return Err("No new tokens".to_string());
         }
 
-        let mut batch = LlamaBatch::new(num_new, 1);
+        // Ensure we are appending at a valid position for llama.cpp.
+        // M-RoPE and other logic in llama.cpp requires strictly increasing positions for a sequence.
+        let max_pos = ctx.kv_cache_seq_pos_max(0);
+        let start_pos = if max_pos < 0 { 0 } else { max_pos + 1 };
+
+        let mut batch = llama_cpp_2::llama_batch::LlamaBatch::new(num_new, 1);
         for (i, &token) in input_tokens.iter().enumerate() {
-            let pos = (session.current_kv_len + i) as i32;
+            let pos = start_pos + i as i32;
             let seq_id = 0; 
             
             let is_last = i == num_new - 1;
@@ -114,14 +120,30 @@ impl ModelRunner for LlamaCppRunner {
 
         ctx.decode(&mut batch).map_err(|e| format!("Decode failed: {}", e))?;
 
-        session.current_kv_len += num_new;
+        session.current_kv_len = (start_pos + num_new as i32) as usize;
 
-        // Extract logits for the last token
-        let logits = ctx.get_logits_ith((num_new - 1) as i32);
+        // Extract logits for all requested tokens
+        let mut all_logits = Vec::with_capacity(num_new * self.model.n_vocab() as usize);
+        for i in 0..num_new {
+            // Check if we requested logits for this token
+            let is_last = i == num_new - 1;
+            let wanted_logits = match mode {
+                ExecutionMode::Prefill => is_last,
+                ExecutionMode::Decode => true,
+                ExecutionMode::Verify { .. } => true,
+            };
+            
+            if wanted_logits {
+                let logits = ctx.get_logits_ith(i as i32);
+                all_logits.extend_from_slice(logits);
+            }
+        }
         
+        let num_output_rows = if mode == ExecutionMode::Prefill { 1 } else { num_new };
+
         Ok(LogitView {
-            data: logits.to_vec(),
-            shape: (1, self.model.n_vocab() as usize),
+            data: all_logits,
+            shape: (num_output_rows, self.model.n_vocab() as usize),
         })
     }
 
@@ -129,8 +151,11 @@ impl ModelRunner for LlamaCppRunner {
         if let Some(state) = &mut session.backend_state {
             let ctx_wrapper = state.downcast_mut::<SafeLlamaContext>().unwrap();
             let ctx = &mut ctx_wrapper.0;
-            ctx.clear_kv_cache_seq(Some(0), Some(len as u32), None)
+            
+            // Clear ALL tokens from 'len' onwards in ALL sequences to be safe.
+            ctx.clear_kv_cache_seq(None, Some(len as u32), None)
                 .map_err(|e| format!("Failed to truncate KV cache: {:?}", e))?;
+            
             session.current_kv_len = len;
         }
         Ok(())

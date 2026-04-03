@@ -31,6 +31,21 @@ void main() {
 
     expect(engineReady, true, reason: 'Engine did not become ready within 120 seconds');
 
+    // Toggle speculative decoding on
+    final switchFinder = find.byType(Switch);
+    if (switchFinder.evaluate().isNotEmpty) {
+      print('Toggling Speculative Decoding ON...');
+      await tester.tap(switchFinder.first);
+      await tester.pumpAndSettle();
+      // Wait for re-initialization
+      for (int i = 0; i < 60; i++) {
+        await tester.pump(const Duration(seconds: 1));
+        if (find.text("System ready. Let's chat!").evaluate().isNotEmpty) {
+          break;
+        }
+      }
+    }
+
     // 2. Log Detailed Backend Info
     final backendString = await SnowglobeOpenAI.checkBackend();
     final modelInfo = await SnowglobeOpenAI.getModelInfo();

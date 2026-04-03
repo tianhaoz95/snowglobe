@@ -6,6 +6,7 @@ use std::path::Path;
 pub type RequestId = u64;
 
 /// Defines the hardware execution intent. 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
     /// Initial prompt processing. Backends prioritize high matrix-throughput.
     Prefill,

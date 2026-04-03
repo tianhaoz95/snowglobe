@@ -144,39 +144,20 @@ pub fn get_last_accepted_count(session_id: String) -> u32 {
 }
 
 pub async fn generate_response(
-    _session_id: String,
+    session_id: String,
     prompt: String,
     max_gen_len: u32,
     sink: StreamSink<String>,
 ) {
-    let request = CreateChatCompletionRequest {
-        model: "snowglobe".to_string(),
-        messages: vec![ChatCompletionRequestMessage::User(
-            ChatCompletionRequestUserMessage {
-                content: ChatCompletionRequestUserMessageContent::Text(prompt),
-                name: None,
-            },
-        )],
-        max_completion_tokens: Some(max_gen_len),
-        stream: Some(true),
-        ..Default::default()
-    };
+    struct SinkWrapper(StreamSink<String>);
+    impl snowglobe::StreamSink<String> for SinkWrapper {
+        fn add(&self, value: String) -> bool {
+            self.0.add(value).is_ok()
+        }
+    }
 
-    let result = snowglobe::create_chat_completion(request).await;
-    match result {
-        Ok(snowglobe::ChatCompletionOutput::Stream(mut stream)) => {
-            while let Some(chunk_res) = stream.next().await {
-                if let Ok(chunk) = chunk_res {
-                    if let Some(content) = &chunk.choices[0].delta.content {
-                        let _ = sink.add(content.clone());
-                    }
-                }
-            }
-        }
-        Ok(snowglobe::ChatCompletionOutput::Single(_)) => {}
-        Err(e) => {
-            android_log(&format!("generate_response error: {}", e));
-        }
+    if let Err(e) = snowglobe::generate_response(&session_id, &prompt, max_gen_len, SinkWrapper(sink)) {
+        android_log(&format!("generate_response error: {}", e));
     }
 }
 
