@@ -40,42 +40,27 @@ EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
 cargo test tests::test_one_plus_one_pte --release -- --nocapture
 ```
 
-### ExecuTorch (Experimental)
-To run inference using ExecuTorch `.pte` models:
+### LiteRT (Experimental)
+To run inference using LiteRT `.tflite` models:
 
-1. **Export the model**:
+1. **Convert the model**:
    ```bash
-   # For MPS (Fastest on Mac)
-   python converter/convert_qwen3_to_pte.py --backend mps
-   # For XNNPACK (Standard CPU)
-   python converter/convert_qwen3_to_pte.py --backend xnnpack
+   # (Work in progress)
+   # python converter/convert_to_litert.py --model qwen3
    ```
 
 2. **Run the test**:
    ```bash
    cd engine
-   
-   # For MPS (Mac)
-   EXECUTORCH_USE_MPS=1 \
-   EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
-   cargo test tests::test_one_plus_one_pte --release -- --nocapture
-   
-   # For XNNPACK (CPU)
-   unset EXECUTORCH_USE_MPS
-   EXECUTORCH_RS_EXECUTORCH_LIB_DIR=../third_party/executorch/cmake-out \
-   cargo test tests::test_one_plus_one_pte --release -- --nocapture
+   cargo test tests::test_litert_beijing --release -- --nocapture
    ```
 
 ### Integration Testing (Flutter Demo)
-To verify the full integration between the Flutter UI and the Rust core, including model downloading and streaming inference, run the chat integration test:
+To verify the full integration between the Flutter UI and the Rust core, including model downloading and streaming inference, run the backend integration test:
 
 ```bash
-cd demo
-# Run on MacOS (with Metal Acceleration for ExecuTorch)
-EXECUTORCH_USE_MPS=1 flutter test integration_test/chat_test.dart -d macos
-
 # Run on Android
-flutter test integration_test/chat_test.dart -d <device_id>
+./scripts/run_backend_test.sh --device <device_id>
 ```
 
 ### Dependency Management (Local vs. Remote)
@@ -246,16 +231,16 @@ The orchestration layer is selected at runtime in the Flutter app based on `--da
   ```bash
   flutter build apk --release --dart-define=USE_LLAMACPP=true
   ```
-- **ExecuTorch (Experimental):** Optimized for `.pte` models.
+- **LiteRT (Experimental):** Optimized for `.tflite` models.
   ```bash
-  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_EXECUTORCH=true
+  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_LITERT=true
   ```
 - **Burn (Safetensors):** Native Burn implementation for `.safetensors` models.
   ```bash
-  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_EXECUTORCH=false
+  flutter build apk --release --dart-define=USE_LLAMACPP=false --dart-define=USE_LITERT=false
   ```
 
-**Note:** The app also performs automatic model detection. If a `model.pte` file is found in the application's cache directory, it will attempt to use the ExecuTorch backend regardless of the build flags.
+**Note:** The app also performs automatic model detection. If a `model.tflite` file is found in the application's cache directory, it will attempt to use the LiteRT backend regardless of the build flags.
 
 ## Tech Stack
 

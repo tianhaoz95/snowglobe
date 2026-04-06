@@ -16,8 +16,7 @@ void main() {
         config: const InitConfig(
           vocabShards: 8,
           maxGenLen: 128,
-          useExecutorch: true,
-          backend: BackendType.execuTorch,
+          backend: BackendType.liteRt,
           speculateTokens: 0,
         ),
       );

@@ -1,9 +1,9 @@
 pub mod qwen;
-pub mod qwen_pte;
 pub mod runner;
 #[cfg(feature = "llamacpp")]
 pub mod llama_cpp;
 pub mod speculative;
+pub mod litert;
 
 use burn::module::Module;
 use burn::tensor::{Int, Tensor, backend::Backend};
@@ -21,8 +21,8 @@ pub struct KVCache<B: Backend> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendType {
     Burn,
-    ExecuTorch,
     LlamaCpp,
+    LiteRT,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -37,7 +37,6 @@ pub enum HardwareTarget {
 pub struct InitConfig {
     pub vocab_shards: usize,
     pub max_gen_len: usize,
-    pub use_executorch: bool, // Deprecated, keep for backwards compat for now or replace entirely
     pub backend: BackendType,
     pub hardware: HardwareTarget,
     pub speculate_tokens: usize, // 0 means disabled
@@ -45,9 +44,9 @@ pub struct InitConfig {
 
 pub enum EngineVariant {
     Burn(Box<dyn runner::ModelRunner>),
-    ExecuTorch(Box<dyn runner::ModelRunner>),
     #[cfg(feature = "llamacpp")]
     LlamaCpp(Box<dyn runner::ModelRunner>),
+    LiteRT(Box<dyn runner::ModelRunner>),
     Speculative(Box<dyn runner::ModelRunner>),
 }
 
@@ -55,9 +54,9 @@ impl EngineVariant {
     pub fn backend_name(&self) -> String {
         match self {
             EngineVariant::Burn(m) => m.get_backend_info().name,
-            EngineVariant::ExecuTorch(m) => m.get_backend_info().name,
             #[cfg(feature = "llamacpp")]
             EngineVariant::LlamaCpp(m) => m.get_backend_info().name,
+            EngineVariant::LiteRT(m) => m.get_backend_info().name,
             EngineVariant::Speculative(m) => m.get_backend_info().name,
         }
     }
@@ -65,9 +64,9 @@ impl EngineVariant {
     pub fn model_name(&self) -> String {
         match self {
             EngineVariant::Burn(m) => m.model_name(),
-            EngineVariant::ExecuTorch(m) => m.model_name(),
             #[cfg(feature = "llamacpp")]
             EngineVariant::LlamaCpp(m) => m.model_name(),
+            EngineVariant::LiteRT(m) => m.model_name(),
             EngineVariant::Speculative(m) => m.model_name(),
         }
     }
@@ -75,10 +74,20 @@ impl EngineVariant {
     pub fn update_cache(&self, tokens: &[u32]) {
         match self {
             EngineVariant::Burn(m) => m.update_cache(tokens),
-            EngineVariant::ExecuTorch(m) => m.update_cache(tokens),
             #[cfg(feature = "llamacpp")]
             EngineVariant::LlamaCpp(m) => m.update_cache(tokens),
+            EngineVariant::LiteRT(m) => m.update_cache(tokens),
             EngineVariant::Speculative(m) => m.update_cache(tokens),
+        }
+    }
+
+    pub fn truncate_cache(&self, session: &mut runner::EngineSession, len: usize) -> Result<(), String> {
+        match self {
+            EngineVariant::Burn(m) => m.truncate_cache(session, len),
+            #[cfg(feature = "llamacpp")]
+            EngineVariant::LlamaCpp(m) => m.truncate_cache(session, len),
+            EngineVariant::LiteRT(m) => m.truncate_cache(session, len),
+            EngineVariant::Speculative(m) => m.truncate_cache(session, len),
         }
     }
 }
@@ -120,4 +129,3 @@ pub trait Model<B: Backend>: Module<B> {
 }
 
 pub use qwen::{Qwen, QwenAttentionRecord, QwenBlockRecord, QwenConfig, QwenMLPRecord, QwenRecord};
-pub use qwen_pte::QwenPte;

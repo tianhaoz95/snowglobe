@@ -3,16 +3,16 @@ use snowglobe::{self};
 
 pub enum BackendType {
     Burn,
-    ExecuTorch,
+    LiteRT,
     LlamaCpp,
 }
 
-impl From<BackendType> for snowglobe::BackendType {
+impl From<BackendType> for snowglobe::model::BackendType {
     fn from(val: BackendType) -> Self {
         match val {
-            BackendType::Burn => snowglobe::BackendType::Burn,
-            BackendType::ExecuTorch => snowglobe::BackendType::ExecuTorch,
-            BackendType::LlamaCpp => snowglobe::BackendType::LlamaCpp,
+            BackendType::Burn => snowglobe::model::BackendType::Burn,
+            BackendType::LiteRT => snowglobe::model::BackendType::LiteRT,
+            BackendType::LlamaCpp => snowglobe::model::BackendType::LlamaCpp,
         }
     }
 }
@@ -20,7 +20,6 @@ impl From<BackendType> for snowglobe::BackendType {
 pub struct InitConfig {
     pub vocab_shards: u32,
     pub max_gen_len: u32,
-    pub use_executorch: bool,
     pub backend: BackendType,
     pub speculate_tokens: u32,
 }
@@ -31,7 +30,6 @@ pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
         snowglobe::InitConfig {
             vocab_shards: config.vocab_shards as usize,
             max_gen_len: config.max_gen_len as usize,
-            use_executorch: config.use_executorch,
             backend: config.backend.into(),
             hardware: snowglobe::model::HardwareTarget::Auto,
             speculate_tokens: config.speculate_tokens as usize,
@@ -117,10 +115,6 @@ pub async fn generate_response(
             }
         }
     }
-}
-
-pub fn experimental_completion_with_pte(pte_path: String, prompt: String) -> String {
-    snowglobe::experimental_completion_with_pte(&pte_path, &prompt).unwrap_or_else(|e| e)
 }
 
 #[flutter_rust_bridge::frb(init)]

@@ -40,27 +40,17 @@ Stream<String> generateResponse({
   maxGenLen: maxGenLen,
 );
 
-Future<String> experimentalCompletionWithPte({
-  required String ptePath,
-  required String prompt,
-}) => RustLib.instance.api.crateApiSimpleExperimentalCompletionWithPte(
-  ptePath: ptePath,
-  prompt: prompt,
-);
-
-enum BackendType { burn, execuTorch, llamaCpp }
+enum BackendType { burn, liteRt, llamaCpp }
 
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
-  final bool useExecutorch;
   final BackendType backend;
   final int speculateTokens;
 
   const InitConfig({
     required this.vocabShards,
     required this.maxGenLen,
-    required this.useExecutorch,
     required this.backend,
     required this.speculateTokens,
   });
@@ -69,7 +59,6 @@ class InitConfig {
   int get hashCode =>
       vocabShards.hashCode ^
       maxGenLen.hashCode ^
-      useExecutorch.hashCode ^
       backend.hashCode ^
       speculateTokens.hashCode;
 
@@ -80,7 +69,6 @@ class InitConfig {
           runtimeType == other.runtimeType &&
           vocabShards == other.vocabShards &&
           maxGenLen == other.maxGenLen &&
-          useExecutorch == other.useExecutorch &&
           backend == other.backend &&
           speculateTokens == other.speculateTokens;
 }

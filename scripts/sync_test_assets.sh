@@ -13,6 +13,12 @@ QWEN3_5_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/
 QWEN3_5_TOKENIZER_URL="https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/tokenizer.json"
 QWEN3_5_CONFIG_URL="https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/config.json"
 
+# Gemma 4 E2B (multimodal, optimized for LiteRT via GGUF in llama.cpp)
+GEMMA4_E2B_NAME="gemma4_e2b"
+GEMMA4_E2B_GGUF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+GEMMA4_E2B_TOKENIZER_URL="https://huggingface.co/google/gemma-4-E2B-it/resolve/main/tokenizer.json"
+GEMMA4_E2B_CONFIG_URL="https://huggingface.co/google/gemma-4-E2B-it/resolve/main/config.json"
+
 function download_if_missing() {
     local model_name=$1
     local file_name=$2
@@ -97,6 +103,24 @@ case $MODEL_NAME in
         fi
         download_if_missing "qwen2_5_pte" "tokenizer.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json"
         download_if_missing "qwen2_5_pte" "config.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json"
+        ;;
+    qwen2_5)
+        # For LiteRT mock and Burn baseline
+        mkdir -p "$ASSETS_DIR/qwen2_5"
+        echo "dummy" > "$ASSETS_DIR/qwen2_5/model.tflite"
+        download_if_missing "qwen2_5" "tokenizer.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json"
+        download_if_missing "qwen2_5" "config.json" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json"
+        download_if_missing "qwen2_5" "model.safetensors" "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors"
+        ;;
+    gemma4_e2b)
+        download_if_missing "gemma4_e2b" "model.gguf" "$GEMMA4_E2B_GGUF_URL"
+        # For LiteRT real model testing
+        if [ ! -f "$ASSETS_DIR/gemma4_e2b/model.tflite" ]; then
+            echo "Creating dummy model.tflite for LiteRT testing (run exporter to get real one)"
+            echo "dummy" > "$ASSETS_DIR/gemma4_e2b/model.tflite"
+        fi
+        download_if_missing "gemma4_e2b" "tokenizer.json" "$GEMMA4_E2B_TOKENIZER_URL"
+        download_if_missing "gemma4_e2b" "config.json" "$GEMMA4_E2B_CONFIG_URL"
         ;;
     *)
         echo "Model $MODEL_NAME not yet configured in this script."

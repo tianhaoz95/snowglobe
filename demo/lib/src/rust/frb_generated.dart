@@ -66,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -1836583923;
+  int get rustContentHash => -172145728;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -78,11 +78,6 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
 abstract class RustLibApi extends BaseApi {
   Future<String> crateApiSimpleCheckBackend();
-
-  Future<String> crateApiSimpleExperimentalCompletionWithPte({
-    required String ptePath,
-    required String prompt,
-  });
 
   Stream<String> crateApiSimpleGenerateResponse({
     required String sessionId,
@@ -140,41 +135,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "check_backend", argNames: []);
 
   @override
-  Future<String> crateApiSimpleExperimentalCompletionWithPte({
-    required String ptePath,
-    required String prompt,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(ptePath, serializer);
-          sse_encode_String(prompt, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 2,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: null,
-        ),
-        constMeta: kCrateApiSimpleExperimentalCompletionWithPteConstMeta,
-        argValues: [ptePath, prompt],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiSimpleExperimentalCompletionWithPteConstMeta =>
-      const TaskConstMeta(
-        debugName: "experimental_completion_with_pte",
-        argNames: ["ptePath", "prompt"],
-      );
-
-  @override
   Stream<String> crateApiSimpleGenerateResponse({
     required String sessionId,
     required String prompt,
@@ -193,7 +153,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 3,
+              funcId: 2,
               port: port_,
             );
           },
@@ -226,7 +186,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 3,
             port: port_,
           );
         },
@@ -256,7 +216,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 4,
             port: port_,
           );
         },
@@ -283,7 +243,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 5,
             port: port_,
           );
         },
@@ -315,7 +275,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 6,
             port: port_,
           );
         },
@@ -344,7 +304,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 7,
             port: port_,
           );
         },
@@ -387,12 +347,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  bool dco_decode_bool(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw as bool;
-  }
-
-  @protected
   InitConfig dco_decode_box_autoadd_init_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_init_config(raw);
@@ -414,14 +368,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   InitConfig dco_decode_init_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return InitConfig(
       vocabShards: dco_decode_u_32(arr[0]),
       maxGenLen: dco_decode_u_32(arr[1]),
-      useExecutorch: dco_decode_bool(arr[2]),
-      backend: dco_decode_backend_type(arr[3]),
-      speculateTokens: dco_decode_u_32(arr[4]),
+      backend: dco_decode_backend_type(arr[2]),
+      speculateTokens: dco_decode_u_32(arr[3]),
     );
   }
 
@@ -508,12 +461,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
-  }
-
-  @protected
   InitConfig sse_decode_box_autoadd_init_config(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_init_config(deserializer));
@@ -536,13 +483,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_vocabShards = sse_decode_u_32(deserializer);
     var var_maxGenLen = sse_decode_u_32(deserializer);
-    var var_useExecutorch = sse_decode_bool(deserializer);
     var var_backend = sse_decode_backend_type(deserializer);
     var var_speculateTokens = sse_decode_u_32(deserializer);
     return InitConfig(
       vocabShards: var_vocabShards,
       maxGenLen: var_maxGenLen,
-      useExecutorch: var_useExecutorch,
       backend: var_backend,
       speculateTokens: var_speculateTokens,
     );
@@ -613,6 +558,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -651,12 +602,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
-  }
-
-  @protected
   void sse_encode_box_autoadd_init_config(
     InitConfig self,
     SseSerializer serializer,
@@ -685,7 +630,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self.vocabShards, serializer);
     sse_encode_u_32(self.maxGenLen, serializer);
-    sse_encode_bool(self.useExecutorch, serializer);
     sse_encode_backend_type(self.backend, serializer);
     sse_encode_u_32(self.speculateTokens, serializer);
   }
@@ -746,5 +690,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }

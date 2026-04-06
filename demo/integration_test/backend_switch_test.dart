@@ -25,11 +25,11 @@ void main() {
       
       // 1. Prepare model directories
       final burnDir = Directory('${appSupportDir.path}/models/burn/qwen3_test');
-      final etDir = Directory('${appSupportDir.path}/models/executorch/qwen3_et_test');
+      final lrDir = Directory('${appSupportDir.path}/models/liteRT/gemma4_test');
       final llamaDir = Directory('${appSupportDir.path}/models/llamaCpp/qwen3_gguf_test');
 
       await burnDir.create(recursive: true);
-      await etDir.create(recursive: true);
+      await lrDir.create(recursive: true);
       await llamaDir.create(recursive: true);
 
       // Create dummy marker files to satisfy scanner
@@ -40,9 +40,9 @@ void main() {
       await File('${burnDir.path}/config.json').writeAsString(dummyConfig);
       await File('${burnDir.path}/tokenizer.json').writeAsString(dummyTokenizer);
 
-      await File('${etDir.path}/model.pte').writeAsString('dummy');
-      await File('${etDir.path}/config.json').writeAsString(dummyConfig);
-      await File('${etDir.path}/tokenizer.json').writeAsString(dummyTokenizer);
+      await File('${lrDir.path}/model.tflite').writeAsString('dummy');
+      await File('${lrDir.path}/config.json').writeAsString(dummyConfig);
+      await File('${lrDir.path}/tokenizer.json').writeAsString(dummyTokenizer);
 
       await File('${llamaDir.path}/model.gguf').writeAsString('dummy');
       await File('${llamaDir.path}/config.json').writeAsString(dummyConfig);
@@ -54,15 +54,15 @@ void main() {
       
       final burnState = tester.state<app.MyAppState>(find.byType(app.MyApp));
       expect(burnState.availableModels.any((m) => m.name == 'qwen3_test'), isTrue);
-      expect(burnState.availableModels.any((m) => m.name == 'qwen3_et_test'), isFalse);
+      expect(burnState.availableModels.any((m) => m.name == 'gemma4_test'), isFalse);
 
-      // 3. Switch to ExecuTorch and verify model list
-      print('Testing ExecuTorch backend...');
-      await _selectBackend(tester, 'Executorch');
+      // 3. Switch to LiteRT and verify model list
+      print('Testing LiteRT backend...');
+      await _selectBackend(tester, 'LiteRT');
       
-      final etState = tester.state<app.MyAppState>(find.byType(app.MyApp));
-      expect(etState.availableModels.any((m) => m.name == 'qwen3_et_test'), isTrue);
-      expect(etState.availableModels.any((m) => m.name == 'qwen3_test'), isFalse);
+      final lrState = tester.state<app.MyAppState>(find.byType(app.MyApp));
+      expect(lrState.availableModels.any((m) => m.name == 'gemma4_test'), isTrue);
+      expect(lrState.availableModels.any((m) => m.name == 'qwen3_test'), isFalse);
 
       // 4. Switch to LlamaCpp and verify model list
       print('Testing LlamaCpp backend...');
@@ -70,7 +70,7 @@ void main() {
       
       final llamaState = tester.state<app.MyAppState>(find.byType(app.MyApp));
       expect(llamaState.availableModels.any((m) => m.name == 'qwen3_gguf_test'), isTrue);
-      expect(llamaState.availableModels.any((m) => m.name == 'qwen3_et_test'), isFalse);
+      expect(llamaState.availableModels.any((m) => m.name == 'gemma4_test'), isFalse);
     });
   });
 }
@@ -80,7 +80,7 @@ Future<void> _selectBackend(WidgetTester tester, String backendName) async {
   
   app.InferenceBackend? backend;
   if (backendName == 'Burn') backend = app.InferenceBackend.burn;
-  if (backendName == 'Executorch') backend = app.InferenceBackend.executorch;
+  if (backendName == 'LiteRT') backend = app.InferenceBackend.liteRT;
   if (backendName == 'LlamaCpp') backend = app.InferenceBackend.llamaCpp;
   
   state.onBackendChanged(backend);

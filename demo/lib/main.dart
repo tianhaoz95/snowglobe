@@ -8,7 +8,7 @@ import 'dart:io';
 
 enum ModelType { qwen2_5, qwen3, qwen3_5, qwen2_5_pte }
 
-enum InferenceBackend { burn, executorch, llamaCpp }
+enum InferenceBackend { burn, llamaCpp, liteRT }
 
 class AvailableModel {
   final String name;
@@ -32,7 +32,9 @@ class MyApp extends StatefulWidget {
 class MyAppState extends State<MyApp> {
   late final TextEditingController _promptController;
   String _response = 'Type a prompt below to see the magic happen.';
+  String get response => _response;
   bool _isLoading = false;
+  bool get isLoading => _isLoading;
   String? _sessionId;
   Future<void>? _initEngineFuture;
 
@@ -45,6 +47,7 @@ class MyAppState extends State<MyApp> {
   String? _engineErrorMessage;
   bool _isEngineReady = false;
   bool _isRustLibInitialized = false;
+  static bool _rustLibStaticInitialized = false;
   int _maxGenLen = 128;
   ModelInfo? _modelInfo;
 
@@ -63,10 +66,16 @@ class MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _promptController = TextEditingController(
-      text: 'what is the capital of China?',
+      text: 'what is 1+1?',
     );
     // Initialize Rust library first, then refresh models and init engine
     _initEngine();
+  }
+
+  void onPromptChanged(String text) {
+    setState(() {
+      _promptController.text = text;
+    });
   }
 
   Future<void> _refreshAvailableModels() async {
@@ -87,10 +96,10 @@ class MyAppState extends State<MyApp> {
         bool isValid = false;
         if (_selectedBackend == InferenceBackend.burn) {
           isValid = await File('${entity.path}/model.safetensors').exists();
-        } else if (_selectedBackend == InferenceBackend.executorch) {
-          isValid = await File('${entity.path}/model.pte').exists();
         } else if (_selectedBackend == InferenceBackend.llamaCpp) {
           isValid = await File('${entity.path}/model.gguf').exists();
+        } else if (_selectedBackend == InferenceBackend.liteRT) {
+          isValid = await File('${entity.path}/model.tflite').exists();
         }
 
         if (isValid) {
@@ -101,6 +110,8 @@ class MyAppState extends State<MyApp> {
             type = ModelType.qwen3;
           } else if (name.toLowerCase().contains('qwen2_5')) {
             type = ModelType.qwen2_5;
+          } else if (name.toLowerCase().contains('gemma4')) {
+            type = ModelType.qwen2_5; // Use compatible type for tokenizer/config
           }
           detected.add(AvailableModel(name: name, path: entity.path, type: type));
         }
@@ -141,9 +152,10 @@ class MyAppState extends State<MyApp> {
     });
 
     try {
-      if (!_isRustLibInitialized) {
+      if (!_rustLibStaticInitialized) {
         print('Initializing Rust library...');
         await SnowglobeOpenAI.initRust();
+        _rustLibStaticInitialized = true;
         _isRustLibInitialized = true;
         print('Rust library initialized');
       }
@@ -152,26 +164,10 @@ class MyAppState extends State<MyApp> {
       print('Backend check: $backend');
 
       if (_selectedModel == null) {
-        // Try to download default if none available
-        final appSupportDir = await getApplicationSupportDirectory();
-        final defaultName = _selectedBackend == InferenceBackend.llamaCpp ? 'qwen3_5' : 'qwen2_5_pte';
-        final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$defaultName');
-        if (!await cacheDir.exists()) {
-          await cacheDir.create(recursive: true);
-        }
-        
-        print('Downloading default model to ${cacheDir.path}');
-        final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
-        if (!downloadSuccess) {
-          throw Exception('Model files not found and download failed.');
-        }
-        await _refreshAvailableModels();
-      }
-
-      if (_selectedModel == null) {
         setState(() {
-          _engineErrorMessage = 'No models available for ${_selectedBackend.name}';
           _isLoading = false;
+          _response = 'No model selected for ${_selectedBackend.name}.';
+          _engineErrorMessage = 'Model file does not exist. Would you like to download the default model or upload your own?';
         });
         return;
       }
@@ -183,10 +179,9 @@ class MyAppState extends State<MyApp> {
         config: InitConfig(
           vocabShards: 8,
           maxGenLen: _maxGenLen,
-          useExecutorch: _selectedBackend == InferenceBackend.executorch,
           backend: _selectedBackend == InferenceBackend.llamaCpp
               ? BackendType.llamaCpp
-              : (_selectedBackend == InferenceBackend.executorch ? BackendType.execuTorch : BackendType.burn),
+              : (_selectedBackend == InferenceBackend.liteRT ? BackendType.liteRt : BackendType.burn),
           hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
@@ -289,13 +284,49 @@ class MyAppState extends State<MyApp> {
 
   Future<void> _redownloadModelAssets() async {
     setState(() {
-      _initEngineFuture = _initEngine();
+      _isLoading = true;
+      _response = 'Downloading default model...';
+      _engineErrorMessage = null;
     });
+
+    try {
+      final appSupportDir = await getApplicationSupportDirectory();
+      final defaultName = _selectedBackend == InferenceBackend.llamaCpp ? 'qwen3_5' : (_selectedBackend == InferenceBackend.liteRT ? 'gemma4_e2b' : 'qwen2_5');
+      final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$defaultName');
+      if (!await cacheDir.exists()) {
+        await cacheDir.create(recursive: true);
+      }
+      
+      print('Downloading default model to ${cacheDir.path}');
+      final downloadSuccess = await _downloadModelAndTokenizer(cacheDir.path);
+      if (!downloadSuccess) {
+        throw Exception('Download failed.');
+      }
+      await _refreshAvailableModels();
+      
+      // After download, re-init engine
+      await _initEngine();
+    } catch (e) {
+      setState(() {
+        _engineErrorMessage = 'Download failed: $e';
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _pickAndInstallModel() async {
+    List<String> allowedExtensions;
+    if (_selectedBackend == InferenceBackend.llamaCpp) {
+      allowedExtensions = ['gguf'];
+    } else if (_selectedBackend == InferenceBackend.liteRT) {
+      allowedExtensions = ['tflite'];
+    } else {
+      allowedExtensions = ['safetensors'];
+    }
+
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
+      type: FileType.custom,
+      allowedExtensions: allowedExtensions,
       allowMultiple: false,
     );
 
@@ -315,8 +346,9 @@ class MyAppState extends State<MyApp> {
       final pickedFile = File(result.files.single.path!);
       final fileName = pickedFile.path.split(Platform.pathSeparator).last;
       final modelFolderName = fileName.split('.').first;
-      
-      final cacheDir = Directory('${appSupportDir.path}/models/${_selectedBackend.name}/$modelFolderName');
+
+      final cacheDir = Directory(
+          '${appSupportDir.path}/models/${_selectedBackend.name}/$modelFolderName');
       if (!await cacheDir.exists()) {
         await cacheDir.create(recursive: true);
       }
@@ -324,21 +356,22 @@ class MyAppState extends State<MyApp> {
       final extension = pickedFile.path.split('.').last.toLowerCase();
 
       String targetName;
-      if (extension == 'pte') {
-        targetName = 'model.pte';
-      } else if (extension == 'gguf') {
+      if (extension == 'gguf') {
         targetName = 'model.gguf';
+      } else if (extension == 'tflite') {
+        targetName = 'model.tflite';
       } else if (extension == 'safetensors') {
         targetName = 'model.safetensors';
       } else {
         targetName = _selectedBackend == InferenceBackend.llamaCpp
             ? 'model.gguf'
-            : (_selectedBackend == InferenceBackend.executorch ? 'model.pte' : 'model.safetensors');
+            : (_selectedBackend == InferenceBackend.liteRT
+                ? 'model.tflite'
+                : 'model.safetensors');
       }
 
       final targetPath = '${cacheDir.path}/$targetName';
       await pickedFile.copy(targetPath);
-
       setState(() {
         _response = 'Model installed. Re-initializing engine...';
       });
@@ -350,10 +383,9 @@ class MyAppState extends State<MyApp> {
         config: InitConfig(
           vocabShards: 8,
           maxGenLen: _maxGenLen,
-          useExecutorch: _selectedBackend == InferenceBackend.executorch,
           backend: _selectedBackend == InferenceBackend.llamaCpp
               ? BackendType.llamaCpp
-              : (_selectedBackend == InferenceBackend.executorch ? BackendType.execuTorch : BackendType.burn),
+              : (_selectedBackend == InferenceBackend.liteRT ? BackendType.liteRt : BackendType.burn),
           hardware: _selectedHardware,
           speculateTokens: _useSpeculative ? _speculateTokens : 0,
         ),
@@ -382,6 +414,7 @@ class MyAppState extends State<MyApp> {
     const qwen2_5BaseUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main';
     const qwen3BaseUrl = 'https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main';
     const qwen3_5BaseUrl = 'https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main';
+    const gemma4BaseUrl = 'https://huggingface.co/google/gemma-4-E2B-it/resolve/main';
     
     final modelFolderName = cacheDir.split(Platform.pathSeparator).last.toLowerCase();
     String baseUrl = qwen3BaseUrl;
@@ -389,6 +422,8 @@ class MyAppState extends State<MyApp> {
       baseUrl = qwen3_5BaseUrl;
     } else if (modelFolderName.contains('qwen2_5')) {
       baseUrl = qwen2_5BaseUrl;
+    } else if (modelFolderName.contains('gemma4')) {
+      baseUrl = gemma4BaseUrl;
     }
 
     String modelUrl = '$baseUrl/model.safetensors';
@@ -401,16 +436,16 @@ class MyAppState extends State<MyApp> {
       } else {
         modelUrl = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf';
       }
-    } else if (_selectedBackend == InferenceBackend.executorch) {
-      // PTE models are usually pushed manually or via side-load, but we provide URLs if available
-      modelUrl = ""; 
+    } else if (_selectedBackend == InferenceBackend.liteRT) {
+      // Load the exported Gemma 4 E2B model in LiteRT format
+      // In a real scenario, this would be a URL to the exported .tflite file.
+      // For testing, we use the model.tflite name.
+      modelUrl = 'https://huggingface.co/google/gemma-4-E2B-it/resolve/main/model.tflite';
     }
 
-    final modelPath = _selectedBackend == InferenceBackend.llamaCpp
-        ? '$cacheDir/model.gguf'
-        : (_selectedBackend == InferenceBackend.executorch
-            ? '$cacheDir/model.pte'
-            : '$cacheDir/model.safetensors');
+    final modelPath = _selectedBackend == InferenceBackend.liteRT
+        ? '$cacheDir/model.tflite'
+        : (_selectedBackend == InferenceBackend.llamaCpp ? '$cacheDir/model.gguf' : '$cacheDir/model.safetensors');
     final tokenizerPath = '$cacheDir/tokenizer.json';
     final configPath = '$cacheDir/config.json';
 
@@ -541,16 +576,16 @@ class MyAppState extends State<MyApp> {
         if (!mounted) break;
 
         if (_prefillTimeSeconds == null && token.isNotEmpty) {
-          _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+          setState(() {
+            _prefillTimeSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
+          });
         }
 
         // Increment token count by 1 for each token yielded by the stream.
         // Even with speculative decoding, tokens are yielded individually.
-        _tokenCount += 1;
-        iterations++;
-
         setState(() {
           _response += token;
+          _tokenCount += 1;
           _elapsedSeconds = stopwatch.elapsed.inMilliseconds / 1000.0;
 
           // Generation speed calculation (tok/s after prefill)
@@ -559,8 +594,11 @@ class MyAppState extends State<MyApp> {
             if (generationSeconds > 0) {
               _tokensPerSecond = _tokenCount / generationSeconds;
             }
+          } else if (_elapsedSeconds > 0) {
+            _tokensPerSecond = _tokenCount / _elapsedSeconds;
           }
         });
+        iterations++;
       }
       
       // Update average accepted count once at the end or more efficiently
@@ -1072,38 +1110,73 @@ class MyAppState extends State<MyApp> {
   }
 
   Widget _buildErrorBanner(ColorScheme colorScheme) {
+    final bool isMissingModel = _engineErrorMessage != null && 
+        _engineErrorMessage!.contains('Model file does not exist');
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: colorScheme.errorContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.error.withOpacity(0.2)),
+        border: Border.all(color: colorScheme.error.withValues(alpha: 0.2)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(Icons.warning_amber_rounded, color: colorScheme.error),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _engineErrorMessage!,
-              style: TextStyle(
-                color: colorScheme.onErrorContainer,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _engineErrorMessage!,
+                  style: TextStyle(
+                    color: colorScheme.onErrorContainer,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
-            ),
+              if (!isMissingModel) ...[
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _isLoading ? null : _initEngine,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Retry'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.error,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(width: 8),
-          TextButton.icon(
-            onPressed: _isLoading ? null : _initEngine,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Retry'),
-            style: TextButton.styleFrom(
-              foregroundColor: colorScheme.error,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+          if (isMissingModel) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: _isLoading ? null : _pickAndInstallModel,
+                  icon: const Icon(Icons.file_upload_outlined, size: 18),
+                  label: const Text('Upload'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.error,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _redownloadModelAssets,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Download Default'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorScheme.error,
+                    foregroundColor: colorScheme.onError,
+                  ),
+                ),
+              ],
             ),
-          ),
+          ],
         ],
       ),
     );

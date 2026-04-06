@@ -14,20 +14,20 @@ cd "$SCRIPT_DIR/.."
 
 # 1. Environment Configuration
 export ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT:-/home/tianhaoz/Android/Sdk/ndk/28.2.13676358}"
-PROJECT_ROOT="$(cd .. && pwd)"
-export EXECUTORCH_RS_EXECUTORCH_LIB_DIR="${EXECUTORCH_RS_EXECUTORCH_LIB_DIR:-$PROJECT_ROOT/executorch-android}"
+export QNN_SDK_ROOT="${QNN_SDK_ROOT:-/opt/qcom/qnn}"
+export HEXAGON_SDK_ROOT="${HEXAGON_SDK_ROOT:-/opt/qcom/hexagon}"
 
 # Shared flags for both build and run
 FLUTTER_FLAGS=(
   "--flavor" "full"
-  "--dart-define=USE_LLAMACPP=false"
-  "--dart-define=USE_EXECUTORCH=true"
+  "--dart-define=USE_LLAMACPP=true"
+  "--dart-define=USE_LITERT=true"
 )
 
 echo "--------------------------------------------------"
 echo "Action: $COMMAND"
 echo "NDK: $ANDROID_NDK_ROOT"
-echo "ExecuTorch Libs: $EXECUTORCH_RS_EXECUTORCH_LIB_DIR"
+echo "QNN SDK: $QNN_SDK_ROOT"
 if [ -n "$DEVICE_ID" ]; then
   echo "Device: $DEVICE_ID"
 fi

@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1836583923;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -172145728;
 
 // Section: executor
 
@@ -71,44 +71,6 @@ fn wire__crate__api__simple__check_backend_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::simple::check_backend())?;
-                    Ok(output_ok)
-                })())
-            }
-        },
-    )
-}
-fn wire__crate__api__simple__experimental_completion_with_pte_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "experimental_completion_with_pte",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_pte_path = <String>::sse_decode(&mut deserializer);
-            let api_prompt = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok =
-                        Result::<_, ()>::Ok(crate::api::simple::experimental_completion_with_pte(
-                            api_pte_path,
-                            api_prompt,
-                        ))?;
                     Ok(output_ok)
                 })())
             }
@@ -370,17 +332,10 @@ impl SseDecode for crate::api::simple::BackendType {
         let mut inner = <i32>::sse_decode(deserializer);
         return match inner {
             0 => crate::api::simple::BackendType::Burn,
-            1 => crate::api::simple::BackendType::ExecuTorch,
+            1 => crate::api::simple::BackendType::LiteRT,
             2 => crate::api::simple::BackendType::LlamaCpp,
             _ => unreachable!("Invalid variant for BackendType: {}", inner),
         };
-    }
-}
-
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
     }
 }
 
@@ -396,13 +351,11 @@ impl SseDecode for crate::api::simple::InitConfig {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_vocabShards = <u32>::sse_decode(deserializer);
         let mut var_maxGenLen = <u32>::sse_decode(deserializer);
-        let mut var_useExecutorch = <bool>::sse_decode(deserializer);
         let mut var_backend = <crate::api::simple::BackendType>::sse_decode(deserializer);
         let mut var_speculateTokens = <u32>::sse_decode(deserializer);
         return crate::api::simple::InitConfig {
             vocab_shards: var_vocabShards,
             max_gen_len: var_maxGenLen,
-            use_executorch: var_useExecutorch,
             backend: var_backend,
             speculate_tokens: var_speculateTokens,
         };
@@ -480,6 +433,13 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -490,23 +450,17 @@ fn pde_ffi_dispatcher_primary_impl(
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
         1 => wire__crate__api__simple__check_backend_impl(port, ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__simple__experimental_completion_with_pte_impl(
+        2 => wire__crate__api__simple__generate_response_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__simple__get_last_accepted_count_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        3 => wire__crate__api__simple__generate_response_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__simple__get_last_accepted_count_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
-        5 => wire__crate__api__simple__get_model_info_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__simple__init_engine_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__simple__init_session_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__simple__get_model_info_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__simple__init_engine_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__simple__init_session_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -530,7 +484,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::simple::BackendType {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
             Self::Burn => 0.into_dart(),
-            Self::ExecuTorch => 1.into_dart(),
+            Self::LiteRT => 1.into_dart(),
             Self::LlamaCpp => 2.into_dart(),
             _ => unreachable!(),
         }
@@ -553,7 +507,6 @@ impl flutter_rust_bridge::IntoDart for crate::api::simple::InitConfig {
         [
             self.vocab_shards.into_into_dart().into_dart(),
             self.max_gen_len.into_into_dart().into_dart(),
-            self.use_executorch.into_into_dart().into_dart(),
             self.backend.into_into_dart().into_dart(),
             self.speculate_tokens.into_into_dart().into_dart(),
         ]
@@ -622,7 +575,7 @@ impl SseEncode for crate::api::simple::BackendType {
         <i32>::sse_encode(
             match self {
                 crate::api::simple::BackendType::Burn => 0,
-                crate::api::simple::BackendType::ExecuTorch => 1,
+                crate::api::simple::BackendType::LiteRT => 1,
                 crate::api::simple::BackendType::LlamaCpp => 2,
                 _ => {
                     unimplemented!("");
@@ -630,13 +583,6 @@ impl SseEncode for crate::api::simple::BackendType {
             },
             serializer,
         );
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
     }
 }
 
@@ -652,7 +598,6 @@ impl SseEncode for crate::api::simple::InitConfig {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u32>::sse_encode(self.vocab_shards, serializer);
         <u32>::sse_encode(self.max_gen_len, serializer);
-        <bool>::sse_encode(self.use_executorch, serializer);
         <crate::api::simple::BackendType>::sse_encode(self.backend, serializer);
         <u32>::sse_encode(self.speculate_tokens, serializer);
     }
@@ -715,6 +660,13 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
+}
+
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]

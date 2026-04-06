@@ -1140,9 +1140,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.56"
+version = "1.2.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aebf35691d1bfb0ac386a69bac2fde4dd276fb618cf8bf4f5318fe285e821bb2"
+checksum = "b7a4d3ec6524d28a329fc53654bbadc9bdd7b0431f5d65f1a56ffb28a1ee5283"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -3942,9 +3942,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "llama-cpp-2"
-version = "0.1.138"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2947ab625c59d1fdf42e61f538c3fa66f43de2f78316971920873f359483d1d8"
+version = "0.1.141"
 dependencies = [
  "encoding_rs",
  "enumflags2",
@@ -3956,9 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "llama-cpp-sys-2"
-version = "0.1.138"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84a529006bf16af70c7485ba957820dc2bc9467d75697e97970c81d2da73c76f"
+version = "0.1.141"
 dependencies = [
  "bindgen 0.72.1",
  "cc",
@@ -3997,6 +3993,15 @@ name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
+dependencies = [
+ "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "lru"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227748d55f2f0ab4735d87fd623798cb6b664512fe979705f829c9f81c934465"
 dependencies = [
  "hashbrown 0.15.5",
 ]
@@ -5195,7 +5200,7 @@ dependencies = [
  "indoc",
  "instability",
  "itertools 0.13.0",
- "lru",
+ "lru 0.12.5",
  "paste",
  "strum 0.26.3",
  "time",
@@ -6172,8 +6177,8 @@ dependencies = [
  "async-stream",
  "async-trait",
  "burn",
- "burn-autodiff",
  "burn-tensor",
+ "burn-wgpu",
  "bytemuck",
  "cc",
  "cmake",
@@ -6182,6 +6187,8 @@ dependencies = [
  "futures-util",
  "half",
  "llama-cpp-2",
+ "llama-cpp-sys-2",
+ "lru 0.13.0",
  "memmap2",
  "once_cell",
  "parking_lot",

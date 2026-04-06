@@ -41,14 +41,13 @@ Stream<String> generateResponse({
   maxGenLen: maxGenLen,
 );
 
-enum BackendType { burn, execuTorch, llamaCpp }
+enum BackendType { burn, llamaCpp, liteRt }
 
 enum HardwareTarget { auto, cpu, gpu, npu }
 
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
-  final bool useExecutorch;
   final BackendType backend;
   final HardwareTarget hardware;
   final int speculateTokens;
@@ -56,7 +55,6 @@ class InitConfig {
   const InitConfig({
     required this.vocabShards,
     required this.maxGenLen,
-    required this.useExecutorch,
     required this.backend,
     required this.hardware,
     required this.speculateTokens,
@@ -66,7 +64,6 @@ class InitConfig {
   int get hashCode =>
       vocabShards.hashCode ^
       maxGenLen.hashCode ^
-      useExecutorch.hashCode ^
       backend.hashCode ^
       hardware.hashCode ^
       speculateTokens.hashCode;
@@ -78,7 +75,6 @@ class InitConfig {
           runtimeType == other.runtimeType &&
           vocabShards == other.vocabShards &&
           maxGenLen == other.maxGenLen &&
-          useExecutorch == other.useExecutorch &&
           backend == other.backend &&
           hardware == other.hardware &&
           speculateTokens == other.speculateTokens;

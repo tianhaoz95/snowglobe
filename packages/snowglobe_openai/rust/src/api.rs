@@ -5,16 +5,16 @@ use async_openai::types::chat::{ChatCompletionRequestMessage, ChatCompletionRequ
 
 pub enum BackendType {
     Burn,
-    ExecuTorch,
     LlamaCpp,
+    LiteRT,
 }
 
-impl From<BackendType> for snowglobe::BackendType {
-    fn from(val: BackendType) -> Self {
-        match val {
-            BackendType::Burn => snowglobe::BackendType::Burn,
-            BackendType::ExecuTorch => snowglobe::BackendType::ExecuTorch,
-            BackendType::LlamaCpp => snowglobe::BackendType::LlamaCpp,
+impl From<BackendType> for snowglobe::model::BackendType {
+    fn from(value: BackendType) -> Self {
+        match value {
+            BackendType::Burn => snowglobe::model::BackendType::Burn,
+            BackendType::LlamaCpp => snowglobe::model::BackendType::LlamaCpp,
+            BackendType::LiteRT => snowglobe::model::BackendType::LiteRT,
         }
     }
 }
@@ -40,7 +40,6 @@ impl From<HardwareTarget> for snowglobe::model::HardwareTarget {
 pub struct InitConfig {
     pub vocab_shards: u32,
     pub max_gen_len: u32,
-    pub use_executorch: bool,
     pub backend: BackendType,
     pub hardware: HardwareTarget,
     pub speculate_tokens: u32,
@@ -52,7 +51,6 @@ pub async fn init_engine(cache_dir: String, config: InitConfig) -> String {
         snowglobe::InitConfig {
             vocab_shards: config.vocab_shards as usize,
             max_gen_len: config.max_gen_len as usize,
-            use_executorch: config.use_executorch,
             backend: config.backend.into(),
             hardware: config.hardware.into(),
             speculate_tokens: config.speculate_tokens as usize,
