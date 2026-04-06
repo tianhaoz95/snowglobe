@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`
 
 Future<String> initEngine({
   required String cacheDir,
@@ -42,16 +42,20 @@ Stream<String> generateResponse({
 
 enum BackendType { burn, liteRt, llamaCpp }
 
+enum HardwareTarget { auto, cpu, gpu, npu }
+
 class InitConfig {
   final int vocabShards;
   final int maxGenLen;
   final BackendType backend;
+  final HardwareTarget hardware;
   final int speculateTokens;
 
   const InitConfig({
     required this.vocabShards,
     required this.maxGenLen,
     required this.backend,
+    required this.hardware,
     required this.speculateTokens,
   });
 
@@ -60,6 +64,7 @@ class InitConfig {
       vocabShards.hashCode ^
       maxGenLen.hashCode ^
       backend.hashCode ^
+      hardware.hashCode ^
       speculateTokens.hashCode;
 
   @override
@@ -70,6 +75,7 @@ class InitConfig {
           vocabShards == other.vocabShards &&
           maxGenLen == other.maxGenLen &&
           backend == other.backend &&
+          hardware == other.hardware &&
           speculateTokens == other.speculateTokens;
 }
 

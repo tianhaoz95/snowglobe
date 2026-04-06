@@ -17,6 +17,7 @@ void main() {
           vocabShards: 8,
           maxGenLen: 128,
           backend: BackendType.liteRt,
+          hardware: HardwareTarget.auto,
           speculateTokens: 0,
         ),
       );

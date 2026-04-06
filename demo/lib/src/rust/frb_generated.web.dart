@@ -39,6 +39,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ModelInfo dco_decode_box_autoadd_model_info(dynamic raw);
 
   @protected
+  HardwareTarget dco_decode_hardware_target(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -84,6 +87,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ModelInfo sse_decode_box_autoadd_model_info(SseDeserializer deserializer);
+
+  @protected
+  HardwareTarget sse_decode_hardware_target(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -144,6 +150,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_model_info(
     ModelInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_hardware_target(
+    HardwareTarget self,
     SseSerializer serializer,
   );
 

@@ -339,6 +339,20 @@ impl SseDecode for crate::api::simple::BackendType {
     }
 }
 
+impl SseDecode for crate::api::simple::HardwareTarget {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::simple::HardwareTarget::Auto,
+            1 => crate::api::simple::HardwareTarget::Cpu,
+            2 => crate::api::simple::HardwareTarget::Gpu,
+            3 => crate::api::simple::HardwareTarget::Npu,
+            _ => unreachable!("Invalid variant for HardwareTarget: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -352,11 +366,13 @@ impl SseDecode for crate::api::simple::InitConfig {
         let mut var_vocabShards = <u32>::sse_decode(deserializer);
         let mut var_maxGenLen = <u32>::sse_decode(deserializer);
         let mut var_backend = <crate::api::simple::BackendType>::sse_decode(deserializer);
+        let mut var_hardware = <crate::api::simple::HardwareTarget>::sse_decode(deserializer);
         let mut var_speculateTokens = <u32>::sse_decode(deserializer);
         return crate::api::simple::InitConfig {
             vocab_shards: var_vocabShards,
             max_gen_len: var_maxGenLen,
             backend: var_backend,
+            hardware: var_hardware,
             speculate_tokens: var_speculateTokens,
         };
     }
@@ -502,12 +518,36 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::simple::BackendType>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::simple::HardwareTarget {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Auto => 0.into_dart(),
+            Self::Cpu => 1.into_dart(),
+            Self::Gpu => 2.into_dart(),
+            Self::Npu => 3.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::simple::HardwareTarget
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::simple::HardwareTarget>
+    for crate::api::simple::HardwareTarget
+{
+    fn into_into_dart(self) -> crate::api::simple::HardwareTarget {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::simple::InitConfig {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.vocab_shards.into_into_dart().into_dart(),
             self.max_gen_len.into_into_dart().into_dart(),
             self.backend.into_into_dart().into_dart(),
+            self.hardware.into_into_dart().into_dart(),
             self.speculate_tokens.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -586,6 +626,24 @@ impl SseEncode for crate::api::simple::BackendType {
     }
 }
 
+impl SseEncode for crate::api::simple::HardwareTarget {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::simple::HardwareTarget::Auto => 0,
+                crate::api::simple::HardwareTarget::Cpu => 1,
+                crate::api::simple::HardwareTarget::Gpu => 2,
+                crate::api::simple::HardwareTarget::Npu => 3,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -599,6 +657,7 @@ impl SseEncode for crate::api::simple::InitConfig {
         <u32>::sse_encode(self.vocab_shards, serializer);
         <u32>::sse_encode(self.max_gen_len, serializer);
         <crate::api::simple::BackendType>::sse_encode(self.backend, serializer);
+        <crate::api::simple::HardwareTarget>::sse_encode(self.hardware, serializer);
         <u32>::sse_encode(self.speculate_tokens, serializer);
     }
 }
